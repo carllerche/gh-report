@@ -99,7 +99,41 @@ gh api search/issues --params "involves:@me updated:>2024-01-01"
 
 # Get comments on an issue
 gh api repos/{owner}/{repo}/issues/{number}/comments --json body,author,createdAt
+
+# Check gh version
+gh version
 ```
+
+### Context Caching Strategy
+
+To avoid re-processing entire issue/PR histories on each run, we'll cache processed context:
+
+```rust
+pub struct IssueContext {
+    pub issue_number: u32,
+    pub repo: String,
+    pub last_updated: Timestamp,
+    pub summary: String,  // AI-generated summary of discussion so far
+    pub key_points: Vec<String>,  // Important decisions/points
+    pub participants: Vec<String>,
+    pub last_processed_comment_id: Option<u64>,
+}
+```
+
+**Cache workflow**:
+1. Check if context exists for issue/PR
+2. If yes, fetch only new comments since `last_processed_comment_id`
+3. If new comments reference earlier discussion not in context:
+   - Fetch more historical comments
+   - Regenerate context with fuller picture
+4. Update cached context with new information
+5. Use context + new comments for report generation
+
+**Benefits**:
+- Reduces API calls for old comments
+- Preserves discussion context across runs
+- Enables better AI summaries with historical awareness
+- Allows incremental processing
 
 ## Alternative Approaches
 
@@ -173,13 +207,37 @@ Store in `fixtures/github/`:
 - Use `--json` for stable output
 - Add tests that verify expected format
 
-## Open Questions
+## Design Decisions
 
-1. Should we check `gh` version on startup?
-2. How to handle repos that no longer exist?
-3. Should we fetch all comments or only recent ones?
-4. What's the optimal pagination size?
-5. How to handle GitHub Enterprise instances?
+1. **Version checking**: Yes, check `gh` version on startup
+   - Define minimum supported version (e.g., 2.20.0)
+   - Error clearly if version is too old
+   - Store version check result to avoid repeated checks
+
+2. **Deleted/inaccessible repos**: Add "deleted repos" note
+   - When repo returns 404 or permission denied
+   - Add to "Repository Changes" section of report
+   - Remove from future checks automatically
+   - Track in state file as "deleted" with timestamp
+
+3. **Comment fetching strategy**: Smart context building
+   - Store context in cache for each issue/PR (not just raw API responses)
+   - Include summary of earlier discussion in cached context
+   - Fetch recent comments first (since last run)
+   - If new comments reference previous discussion and context not cached:
+     - Fetch more historical comments as needed
+     - Update cached context with fuller picture
+   - Cache location: `~/Github Reports/.cache/contexts/`
+
+4. **Pagination size**: 100 items per page
+   - GitHub's maximum for most endpoints
+   - Reduces number of API calls
+   - Use `--paginate` flag for automatic handling
+
+5. **GitHub Enterprise**: Not supported
+   - Simplifies implementation
+   - Focus on GitHub.com only
+   - Can be added later if needed
 
 ## Next Steps
 

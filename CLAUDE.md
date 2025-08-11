@@ -29,7 +29,17 @@ The tool addresses the challenge of managing high-volume GitHub activity across 
 
 ### External Dependencies
 - GitHub CLI (`gh`) - Required for fetching GitHub data
+  - Minimum version: 2.20.0 (check on startup)
+  - Use `--json` flag for structured output
+  - Use `--paginate` for automatic pagination
 - Claude API - Required for summarization and intelligent processing
+
+### GitHub Integration Decisions
+- **Authentication**: Use `gh` CLI exclusively (no direct API)
+- **Deleted repos**: Track and report in "Repository Changes" section
+- **Comment strategy**: Cache processed context to avoid re-fetching
+- **Pagination**: 100 items per page (GitHub max)
+- **GitHub Enterprise**: Not supported (simplifies implementation)
 
 ### Library Choices
 - **Date/Time**: Use `jiff` (v0.2) instead of `chrono` - it's more modern, safer, and has better timezone handling
@@ -176,6 +186,10 @@ Use this pattern for:
   - Example: `(days as i64 * 24).hours()` instead of `days.days()`
 - **Configuration**: Always expand tilde paths with `dirs::home_dir()`
 - **State**: Track repos with activity scores and auto-removal
+- **Context caching**: Store AI-generated summaries of issues/PRs to avoid re-processing
+  - Cache location: `~/Github Reports/.cache/contexts/`
+  - Include: summary, key points, last processed comment ID
+  - Enables incremental processing of long discussions
 
 ## Common Development Tasks
 
