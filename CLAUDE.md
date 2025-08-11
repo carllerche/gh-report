@@ -145,28 +145,51 @@ Use this pattern for:
 - Configuration sources
 - Any abstraction with a known, finite set of implementations
 
+## Current Implementation Status
+
+### Completed (Milestone 1)
+- ✅ CLI structure with clap (src/cli.rs)
+- ✅ Configuration management (src/config.rs)
+  - TOML parsing with serde
+  - Default values for all fields
+  - Home directory expansion
+- ✅ State management (src/state.rs)
+  - JSON persistence
+  - Activity tracking
+  - Auto-cleanup of inactive repos
+- ✅ Main entry point with command dispatch
+- ✅ Error handling with anyhow
+- ✅ Logging with tracing
+
+### API Notes
+- **jiff date/time**: Use hours for Timestamp arithmetic, not days
+  - Example: `(days as i64 * 24).hours()` instead of `days.days()`
+- **Configuration**: Always expand tilde paths with `dirs::home_dir()`
+- **State**: Track repos with activity scores and auto-removal
+
 ## Common Development Tasks
 
 ### Running the tool
 ```bash
 cargo run -- --dry-run                    # Preview what would be fetched
-cargo run                                  # Generate report
+cargo run                                  # Generate report (currently stub)
 cargo run -- --no-cache                   # Force fresh data
 cargo run -- init                         # Initialize configuration
+cargo run -- --help                       # Show all options
 ```
 
 ### Testing
 ```bash
 cargo test                                 # Run all tests
-cargo insta review                        # Review snapshot changes
-cargo test --no-default-features          # Test without optional features
+cargo test state::                        # Run state module tests
+cargo insta review                        # Review snapshot changes (when added)
 ```
 
 ### Linting and Type Checking
 ```bash
 cargo clippy -- -D warnings              # Lint with warnings as errors
-cargo fmt --check                         # Check formatting
-```
+cargo fmt                                 # Auto-format code
+cargo build                               # Type check
 
 ## Implementation Tips
 
