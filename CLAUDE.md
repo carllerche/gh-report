@@ -99,6 +99,16 @@ Predefined watch rules that can be applied to labels or repos:
 - Optional API key helper scripts for dynamic credentials
 - Different models for different importance levels (cost optimization)
 
+## Development Workflow
+
+### IMPORTANT: After Completing Any Task
+1. **Update IMPLEMENTATION.md** - Mark completed items, add notes about what was delivered
+2. **Update CLAUDE.md** - Add implementation details, API notes, gotchas discovered
+3. **Test the changes** - Run `cargo test` and manual testing
+4. **Then commit** - Only commit after documentation is updated
+
+This ensures continuity between sessions and helps future instances understand the codebase state.
+
 ## Testing Approach
 
 The project uses a multi-layered testing strategy:
