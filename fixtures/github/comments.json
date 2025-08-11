@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1001,
+    "body": "This looks good to me. We should consider the performance implications though.",
+    "author": {
+      "login": "reviewer1",
+      "type": "User"
+    },
+    "createdAt": "2024-01-11T10:00:00Z",
+    "updatedAt": "2024-01-11T10:00:00Z"
+  },
+  {
+    "id": 1002,
+    "body": "I've run benchmarks and the performance impact is minimal (< 2%).",
+    "author": {
+      "login": "contributor1",
+      "type": "User"
+    },
+    "createdAt": "2024-01-11T11:30:00Z",
+    "updatedAt": "2024-01-11T11:30:00Z"
+  },
+  {
+    "id": 1003,
+    "body": "LGTM then! Let's merge after CI passes.",
+    "author": {
+      "login": "maintainer1",
+      "type": "User"
+    },
+    "createdAt": "2024-01-11T14:00:00Z",
+    "updatedAt": "2024-01-11T14:00:00Z"
+  }
+]

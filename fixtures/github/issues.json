@@ -1,0 +1,60 @@
+[
+  {
+    "number": 123,
+    "title": "Add support for async trait methods",
+    "body": "We should support async methods in traits now that it's stable",
+    "state": "OPEN",
+    "author": {
+      "login": "contributor1",
+      "type": "User"
+    },
+    "createdAt": "2024-01-10T10:00:00Z",
+    "updatedAt": "2024-01-11T15:30:00Z",
+    "labels": [
+      {
+        "name": "enhancement",
+        "color": "a2eeef",
+        "description": "New feature or request"
+      },
+      {
+        "name": "breaking-change",
+        "color": "d73a4a",
+        "description": "This change will break existing code"
+      }
+    ],
+    "url": "https://github.com/owner/repo/issues/123",
+    "comments": {
+      "totalCount": 5
+    },
+    "isPullRequest": false
+  },
+  {
+    "number": 124,
+    "title": "Fix memory leak in connection pool",
+    "body": "There's a memory leak when connections timeout",
+    "state": "OPEN",
+    "author": {
+      "login": "maintainer1",
+      "type": "User"
+    },
+    "createdAt": "2024-01-11T09:00:00Z",
+    "updatedAt": "2024-01-11T16:45:00Z",
+    "labels": [
+      {
+        "name": "bug",
+        "color": "d73a4a",
+        "description": "Something isn't working"
+      },
+      {
+        "name": "critical",
+        "color": "ff0000",
+        "description": "Critical issue"
+      }
+    ],
+    "url": "https://github.com/owner/repo/pull/124",
+    "comments": {
+      "totalCount": 3
+    },
+    "isPullRequest": true
+  }
+]

@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use gh_daily_report::{cli::{Cli, Commands}, Config, State};
 use std::path::PathBuf;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
@@ -47,6 +47,18 @@ fn setup_logging(verbosity: u8) -> Result<()> {
 }
 
 fn generate_report(cli: &Cli) -> Result<()> {
+    // Check GitHub CLI first
+    info!("Checking GitHub CLI");
+    match gh_daily_report::github::check_gh_version() {
+        Ok(version) => info!("Using gh version {}", version),
+        Err(e) => {
+            error!("GitHub CLI check failed: {}", e);
+            println!("❌ {}", e);
+            println!("\nPlease install GitHub CLI from: https://cli.github.com/");
+            return Err(e);
+        }
+    }
+
     info!("Loading configuration");
     let config = Config::load(cli.config.as_deref())
         .context("Failed to load configuration")?;

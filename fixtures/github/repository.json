@@ -1,0 +1,14 @@
+{
+  "name": "test-repo",
+  "owner": {
+    "login": "test-owner"
+  },
+  "nameWithOwner": "test-owner/test-repo",
+  "description": "A test repository for testing",
+  "isPrivate": false,
+  "isArchived": false,
+  "pushedAt": "2024-01-11T12:00:00Z",
+  "defaultBranchRef": {
+    "name": "main"
+  }
+}

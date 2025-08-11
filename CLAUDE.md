@@ -167,7 +167,8 @@ Use this pattern for:
 
 ## Current Implementation Status
 
-### Completed (Milestone 1)
+### Completed
+**Milestone 1: Foundation**
 - ✅ CLI structure with clap (src/cli.rs)
 - ✅ Configuration management (src/config.rs)
   - TOML parsing with serde
@@ -180,6 +181,15 @@ Use this pattern for:
 - ✅ Main entry point with command dispatch
 - ✅ Error handling with anyhow
 - ✅ Logging with tracing
+
+**Milestone 2: GitHub Integration**
+- ✅ GitHub module (src/github/)
+  - GitHubClient enum with Real/Mock variants
+  - gh CLI subprocess execution
+  - Version checking (min 2.20.0)
+  - Complete data models for Issues, PRs, Comments
+  - Date-based filtering support
+  - Mock implementation for testing
 
 ### API Notes
 - **jiff date/time**: Use hours for Timestamp arithmetic, not days
