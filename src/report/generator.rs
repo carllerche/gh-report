@@ -8,6 +8,7 @@ use crate::github::{GitHubClient, Issue};
 use crate::state::State;
 use crate::claude::{ClaudeClient, MessagesRequest, Message, resolve_model_alias, estimate_tokens, estimate_cost};
 use crate::claude::prompts::{system_prompt, summarize_activities_prompt, generate_title_prompt};
+use crate::intelligence::IntelligentAnalyzer;
 use super::{Report, ReportTemplate, group_activities_by_repo};
 
 pub struct ReportGenerator<'a> {
@@ -93,9 +94,19 @@ impl<'a> ReportGenerator<'a> {
 
         let activities = group_activities_by_repo(all_issues);
         
+        // Apply intelligent analysis
+        let analyzer = IntelligentAnalyzer::new(&self.config);
+        let analysis = analyzer.analyze(&activities);
+        
+        info!("Intelligent analysis: {} prioritized items, {} action items", 
+            analysis.prioritized_issues.len(),
+            analysis.action_items.len());
+        
         // Generate AI summary if Claude is available
         let (ai_summary, ai_title, estimated_cost) = if let Some(claude) = &self.claude_client {
-            match self.generate_ai_summary(claude, &activities) {
+            // Include context from intelligent analysis
+            let context_prompt = Some(analysis.context_prompt.as_str());
+            match self.generate_ai_summary_with_context(claude, &activities, context_prompt) {
                 Ok((summary, title, cost)) => {
                     info!("Generated AI summary (estimated cost: ${:.4})", cost);
                     (Some(summary), Some(title), cost)
@@ -111,12 +122,13 @@ impl<'a> ReportGenerator<'a> {
         };
         
         let template = ReportTemplate::new(&self.config);
-        let content = template.render_with_summary(
+        let content = template.render_with_intelligence(
             &activities,
             since,
             now,
             &errors,
             ai_summary.as_deref(),
+            &analysis,
         )?;
 
         let title = ai_title.unwrap_or_else(|| self.generate_title(since, now, &activities));
@@ -139,8 +151,17 @@ impl<'a> ReportGenerator<'a> {
         claude: &ClaudeClient,
         activities: &BTreeMap<String, crate::github::RepoActivity>,
     ) -> Result<(String, String, f32)> {
+        self.generate_ai_summary_with_context(claude, activities, None)
+    }
+    
+    fn generate_ai_summary_with_context(
+        &self,
+        claude: &ClaudeClient,
+        activities: &BTreeMap<String, crate::github::RepoActivity>,
+        context: Option<&str>,
+    ) -> Result<(String, String, f32)> {
         // Generate the prompt
-        let prompt = summarize_activities_prompt(activities, None);
+        let prompt = summarize_activities_prompt(activities, context);
         
         // Estimate tokens
         let input_tokens = estimate_tokens(&prompt) + estimate_tokens(&system_prompt());

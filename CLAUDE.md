@@ -225,6 +225,26 @@ Use this pattern for:
   - Graceful fallback without Claude
   - Cost tracking in reports
 
+**Milestone 5: Intelligent Summarization**
+- ✅ Intelligence module (src/intelligence/)
+  - IntelligentAnalyzer for filtering and prioritization
+  - Watch rules engine with pattern matching
+  - Priority scoring algorithm (0-150 points)
+  - Context injection for labels and repos
+  - Action item extraction with urgency levels
+- ✅ Scoring factors
+  - Repository importance (Critical/High/Medium/Low)
+  - Recency (last 6h/1d/3d/1w/2w)
+  - Activity level (comment count)
+  - Rule matches (security/breaking/api/etc)
+  - Label indicators (bug/urgent/feature)
+  - PR bonus points
+- ✅ Report enhancements
+  - Action items section with urgency indicators
+  - Prioritized items with scores
+  - Context-aware AI summaries
+  - Intelligent filtering based on watch rules
+
 ### API Notes
 - **jiff date/time**: Use hours for Timestamp arithmetic, not days
   - Example: `(days as i64 * 24).hours()` instead of `days.days()`

@@ -5,6 +5,7 @@ use std::fmt::Write;
 
 use crate::config::Config;
 use crate::github::{Issue, RepoActivity, IssueState};
+use crate::intelligence::AnalysisResult;
 
 pub struct ReportTemplate<'a> {
     config: &'a Config,
@@ -33,12 +34,52 @@ impl<'a> ReportTemplate<'a> {
         errors: &[String],
         ai_summary: Option<&str>,
     ) -> Result<String> {
+        self.render_with_intelligence(activities, since, now, errors, ai_summary, &AnalysisResult {
+            prioritized_issues: vec![],
+            matched_rules: std::collections::HashMap::new(),
+            context_prompt: String::new(),
+            action_items: vec![],
+            repo_importances: std::collections::HashMap::new(),
+        })
+    }
+    
+    pub fn render_with_intelligence(
+        &self,
+        activities: &BTreeMap<String, RepoActivity>,
+        since: Timestamp,
+        now: Timestamp,
+        errors: &[String],
+        ai_summary: Option<&str>,
+        analysis: &AnalysisResult,
+    ) -> Result<String> {
         let mut output = String::new();
 
         self.write_header(&mut output, since, now)?;
         
         if !errors.is_empty() {
             self.write_errors(&mut output, errors)?;
+        }
+        
+        // Add action items if available
+        if !analysis.action_items.is_empty() {
+            writeln!(&mut output, "\n## 🎯 Action Items\n")?;
+            for (i, action) in analysis.action_items.iter().enumerate() {
+                let urgency_emoji = match action.urgency {
+                    crate::intelligence::Urgency::Critical => "🔴",
+                    crate::intelligence::Urgency::High => "🟠",
+                    crate::intelligence::Urgency::Medium => "🟡",
+                    crate::intelligence::Urgency::Low => "🟢",
+                };
+                writeln!(&mut output, "{}. {} {} - {} ([#{}]({}))",
+                    i + 1,
+                    urgency_emoji,
+                    action.description,
+                    action.reason,
+                    action.issue.number,
+                    action.issue.url
+                )?;
+            }
+            writeln!(&mut output)?;
         }
         
         // Add AI summary if available
@@ -52,6 +93,26 @@ impl<'a> ReportTemplate<'a> {
             writeln!(&mut output, "No issues or pull requests were updated in the specified time period.")?;
         } else {
             self.write_summary(&mut output, activities)?;
+            
+            // Add prioritized issues section if available
+            if !analysis.prioritized_issues.is_empty() {
+                writeln!(&mut output, "\n## 🔥 Prioritized Items\n")?;
+                
+                // Show top 10 prioritized items
+                for issue in analysis.prioritized_issues.iter().take(10) {
+                    let type_str = if issue.issue.is_pull_request { "PR" } else { "Issue" };
+                    writeln!(&mut output, "- **[{}]** {} [#{}]({}) - {} (Score: {})",
+                        issue.repo,
+                        type_str,
+                        issue.issue.number,
+                        issue.issue.url,
+                        issue.issue.title,
+                        issue.score.total
+                    )?;
+                }
+                writeln!(&mut output)?;
+            }
+            
             self.write_activities(&mut output, activities)?;
         }
 
