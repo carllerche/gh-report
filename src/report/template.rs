@@ -22,12 +22,29 @@ impl<'a> ReportTemplate<'a> {
         now: Timestamp,
         errors: &[String],
     ) -> Result<String> {
+        self.render_with_summary(activities, since, now, errors, None)
+    }
+    
+    pub fn render_with_summary(
+        &self,
+        activities: &BTreeMap<String, RepoActivity>,
+        since: Timestamp,
+        now: Timestamp,
+        errors: &[String],
+        ai_summary: Option<&str>,
+    ) -> Result<String> {
         let mut output = String::new();
 
         self.write_header(&mut output, since, now)?;
         
         if !errors.is_empty() {
             self.write_errors(&mut output, errors)?;
+        }
+        
+        // Add AI summary if available
+        if let Some(summary) = ai_summary {
+            writeln!(&mut output, "\n## 🤖 AI Summary\n")?;
+            writeln!(&mut output, "{}", summary)?;
         }
 
         if activities.is_empty() {

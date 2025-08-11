@@ -207,6 +207,24 @@ Use this pattern for:
   - Issue/PR categorization (new vs updated)
   - Clickable links to GitHub items
 
+**Milestone 4: Claude Integration**
+- ✅ Claude module (src/claude/)
+  - ClaudeClient enum with Real/Mock variants
+  - Complete Messages API implementation
+  - Model alias resolution (sonnet → claude-3-5-sonnet-20241022)
+  - Cost estimation based on token usage
+  - API key from ANTHROPIC_API_KEY env var
+  - Retry logic with exponential backoff
+- ✅ Prompt engineering
+  - System prompt for GitHub summarization
+  - Activity summarization prompts
+  - Title generation from summaries
+  - Context-aware prompting support
+- ✅ Report generator integration
+  - Optional AI summaries when API key available
+  - Graceful fallback without Claude
+  - Cost tracking in reports
+
 ### API Notes
 - **jiff date/time**: Use hours for Timestamp arithmetic, not days
   - Example: `(days as i64 * 24).hours()` instead of `days.days()`

@@ -27,9 +27,11 @@ dirs = "5.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# Claude API client - Milestone 4
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"] }
+
 # Future dependencies (commented for now, will add as needed)
 # tokio = { version = "1", features = ["full"] }  # Milestone 9
-# reqwest = { version = "0.12", features = ["json", "rustls-tls"] }  # Milestone 4
 # indicatif = "0.17"  # Milestone 8
 # sha2 = "0.10"  # Milestone 7
 # flate2 = "1.0"  # Milestone 7

@@ -6,17 +6,43 @@ use std::collections::BTreeMap;
 use crate::config::Config;
 use crate::github::{GitHubClient, Issue};
 use crate::state::State;
+use crate::claude::{ClaudeClient, MessagesRequest, Message, resolve_model_alias, estimate_tokens, estimate_cost};
+use crate::claude::prompts::{system_prompt, summarize_activities_prompt, generate_title_prompt};
 use super::{Report, ReportTemplate, group_activities_by_repo};
 
 pub struct ReportGenerator<'a> {
-    client: GitHubClient,
+    github_client: GitHubClient,
+    claude_client: Option<ClaudeClient>,
     config: &'a Config,
     state: &'a State,
 }
 
 impl<'a> ReportGenerator<'a> {
-    pub fn new(client: GitHubClient, config: &'a Config, state: &'a State) -> Self {
-        ReportGenerator { client, config, state }
+    pub fn new(github_client: GitHubClient, config: &'a Config, state: &'a State) -> Self {
+        // Try to create Claude client if API key is available
+        let claude_client = match std::env::var("ANTHROPIC_API_KEY") {
+            Ok(_) => match ClaudeClient::new() {
+                Ok(client) => {
+                    info!("Claude API client initialized");
+                    Some(client)
+                }
+                Err(e) => {
+                    warn!("Failed to initialize Claude client: {}", e);
+                    None
+                }
+            },
+            Err(_) => {
+                info!("ANTHROPIC_API_KEY not set, running without AI summarization");
+                None
+            }
+        };
+        
+        ReportGenerator { 
+            github_client, 
+            claude_client,
+            config, 
+            state 
+        }
     }
 
     pub fn generate(&self, lookback_days: u32) -> Result<Report> {
@@ -32,7 +58,7 @@ impl<'a> ReportGenerator<'a> {
         for (repo_name, _repo_state) in &self.state.tracked_repos {
             info!("Fetching issues for {}", repo_name);
             
-            match self.client.fetch_issues(repo_name, Some(since)) {
+            match self.github_client.fetch_issues(repo_name, Some(since)) {
                 Ok(mut issues) => {
                     issues.retain(|issue| issue.updated_at >= since);
                     
@@ -67,27 +93,96 @@ impl<'a> ReportGenerator<'a> {
 
         let activities = group_activities_by_repo(all_issues);
         
+        // Generate AI summary if Claude is available
+        let (ai_summary, ai_title, estimated_cost) = if let Some(claude) = &self.claude_client {
+            match self.generate_ai_summary(claude, &activities) {
+                Ok((summary, title, cost)) => {
+                    info!("Generated AI summary (estimated cost: ${:.4})", cost);
+                    (Some(summary), Some(title), cost)
+                }
+                Err(e) => {
+                    warn!("Failed to generate AI summary: {}", e);
+                    errors.push(format!("⚠️ AI summarization failed: {}", e));
+                    (None, None, 0.0)
+                }
+            }
+        } else {
+            (None, None, 0.0)
+        };
+        
         let template = ReportTemplate::new(&self.config);
-        let content = template.render(
+        let content = template.render_with_summary(
             &activities,
             since,
             now,
             &errors,
+            ai_summary.as_deref(),
         )?;
 
-        let title = self.generate_title(since, now, &activities);
+        let title = ai_title.unwrap_or_else(|| self.generate_title(since, now, &activities));
 
         Ok(Report {
             title,
             content,
             timestamp: now,
-            estimated_cost: 0.0,
+            estimated_cost,
         })
     }
 
     fn fetch_user_mentions(&self, _username: &str, since: Timestamp) -> Result<Vec<Issue>> {
-        self.client.fetch_mentions(since)
+        self.github_client.fetch_mentions(since)
             .context("Failed to fetch user mentions")
+    }
+    
+    fn generate_ai_summary(
+        &self,
+        claude: &ClaudeClient,
+        activities: &BTreeMap<String, crate::github::RepoActivity>,
+    ) -> Result<(String, String, f32)> {
+        // Generate the prompt
+        let prompt = summarize_activities_prompt(activities, None);
+        
+        // Estimate tokens
+        let input_tokens = estimate_tokens(&prompt) + estimate_tokens(&system_prompt());
+        
+        // Create request
+        let model = resolve_model_alias(&self.config.claude.primary_model);
+        let request = MessagesRequest::new(
+            model.clone(),
+            vec![Message::user(prompt)],
+        )
+        .with_system(system_prompt())
+        .with_max_tokens(4000);
+        
+        // Send request
+        let response = claude.messages(request)
+            .context("Failed to get summary from Claude")?;
+        
+        let summary = response.get_text();
+        let output_tokens = response.usage.output_tokens;
+        
+        // Generate title from summary
+        let title_prompt = generate_title_prompt(&summary);
+        let title_request = MessagesRequest::new(
+            resolve_model_alias(&self.config.claude.secondary_model),
+            vec![Message::user(title_prompt)],
+        )
+        .with_max_tokens(100);
+        
+        let title_response = claude.messages(title_request)
+            .context("Failed to generate title from Claude")?;
+        
+        let title = title_response.get_text().trim().to_string();
+        
+        // Calculate total cost
+        let summary_cost = estimate_cost(&model, input_tokens, output_tokens);
+        let title_cost = estimate_cost(
+            &self.config.claude.secondary_model,
+            estimate_tokens(&generate_title_prompt(&summary)),
+            title_response.usage.output_tokens,
+        );
+        
+        Ok((summary, title, summary_cost + title_cost))
     }
 
     fn generate_title(&self, since: Timestamp, now: Timestamp, activities: &BTreeMap<String, crate::github::RepoActivity>) -> String {
@@ -119,11 +214,14 @@ mod tests {
     #[test]
     fn test_report_generator_creation() {
         let mock = MockGitHub::new();
-        let client = GitHubClient::Mock(mock);
+        let github_client = GitHubClient::Mock(mock);
         let config = Config::default();
         let state = State::default();
         
-        let generator = ReportGenerator::new(client, &config, &state);
-        assert!(generator.generate(1).is_ok());
+        let generator = ReportGenerator::new(github_client, &config, &state);
+        
+        // Generate should work even without Claude client
+        let result = generator.generate(1);
+        assert!(result.is_ok());
     }
 }
