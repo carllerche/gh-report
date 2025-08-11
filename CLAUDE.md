@@ -191,6 +191,22 @@ Use this pattern for:
   - Date-based filtering support
   - Mock implementation for testing
 
+**Milestone 3: Report Generation v1**
+- ✅ Report module (src/report/)
+  - Report struct for holding generated reports
+  - ReportGenerator with GitHub client integration
+  - ReportTemplate for markdown formatting
+  - Activity grouping by repository
+  - File naming with date placeholders
+  - Automatic report directory creation
+  - Integration with main command
+- ✅ Basic markdown generation without AI
+  - Header with date range
+  - Summary statistics
+  - Activity grouped by repository
+  - Issue/PR categorization (new vs updated)
+  - Clickable links to GitHub items
+
 ### API Notes
 - **jiff date/time**: Use hours for Timestamp arithmetic, not days
   - Example: `(days as i64 * 24).hours()` instead of `days.days()`

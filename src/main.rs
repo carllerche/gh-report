@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use gh_daily_report::{cli::{Cli, Commands}, Config, State};
+use gh_daily_report::{cli::{Cli, Commands}, Config, State, github::GitHubClient, report::ReportGenerator};
 use std::path::PathBuf;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -85,26 +85,53 @@ fn generate_report(cli: &Cli) -> Result<()> {
         return Ok(());
     }
 
-    // Determine the since timestamp
-    let _since = if let Some(since_str) = &cli.since {
+    // Determine the lookback days
+    let lookback_days = if let Some(since_str) = &cli.since {
         info!("Using custom since date: {}", since_str);
-        // TODO: Parse the date string
-        todo!("Parse custom since date")
+        // For now, parse simple day count like "7d" or just a number
+        if since_str.ends_with('d') {
+            let days_str = &since_str[..since_str.len()-1];
+            days_str.parse::<u32>()
+                .with_context(|| format!("Invalid since format: {}", since_str))?
+        } else {
+            since_str.parse::<u32>()
+                .with_context(|| format!("Invalid since format: {}", since_str))?
+        }
     } else {
-        let since = state.get_since_timestamp(config.settings.max_lookback_days);
-        info!("Fetching activity since: {}", since);
-        since
+        // Calculate days since last run, or use max lookback
+        if let Some(last_run) = state.last_run {
+            let now = jiff::Timestamp::now();
+            let diff = now - last_run;
+            let days = (diff.get_days() as u32).max(1);
+            days.min(config.settings.max_lookback_days)
+        } else {
+            config.settings.max_lookback_days
+        }
     };
 
-    // TODO: Implement actual report generation
+    info!("Generating report for the last {} days", lookback_days);
     println!("✓ Loading configuration");
     if let Some(last_run) = state.last_run {
-        println!("✓ Checking last report: {}", last_run);
+        println!("✓ Last report: {}", last_run.strftime("%Y-%m-%d %H:%M"));
     } else {
         println!("✓ First run - no previous report found");
     }
     
-    println!("⚠️  Report generation not yet implemented (Milestone 2+)");
+    // Create GitHub client
+    println!("📊 Fetching GitHub activity...");
+    let github_client = GitHubClient::new()
+        .context("Failed to create GitHub client")?;
+    
+    // Generate the report
+    let generator = ReportGenerator::new(github_client, &config, &state);
+    let report = generator.generate(lookback_days)
+        .context("Failed to generate report")?;
+    
+    // Save the report
+    let report_path = report.save(&config)
+        .context("Failed to save report")?;
+    
+    println!("✓ Report saved to: {:?}", report_path);
     
     // Update state
     state.update_last_run();

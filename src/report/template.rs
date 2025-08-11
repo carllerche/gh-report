@@ -1,0 +1,228 @@
+use anyhow::Result;
+use jiff::{Timestamp, ToSpan};
+use std::collections::BTreeMap;
+use std::fmt::Write;
+
+use crate::config::Config;
+use crate::github::{Issue, RepoActivity, IssueState};
+
+pub struct ReportTemplate<'a> {
+    config: &'a Config,
+}
+
+impl<'a> ReportTemplate<'a> {
+    pub fn new(config: &'a Config) -> Self {
+        ReportTemplate { config }
+    }
+
+    pub fn render(
+        &self,
+        activities: &BTreeMap<String, RepoActivity>,
+        since: Timestamp,
+        now: Timestamp,
+        errors: &[String],
+    ) -> Result<String> {
+        let mut output = String::new();
+
+        self.write_header(&mut output, since, now)?;
+        
+        if !errors.is_empty() {
+            self.write_errors(&mut output, errors)?;
+        }
+
+        if activities.is_empty() {
+            writeln!(&mut output, "\n## 📭 No Activity\n")?;
+            writeln!(&mut output, "No issues or pull requests were updated in the specified time period.")?;
+        } else {
+            self.write_summary(&mut output, activities)?;
+            self.write_activities(&mut output, activities)?;
+        }
+
+        self.write_footer(&mut output)?;
+
+        Ok(output)
+    }
+
+    fn write_header(&self, output: &mut String, since: Timestamp, now: Timestamp) -> Result<()> {
+        writeln!(output, "# GitHub Activity Report")?;
+        writeln!(output)?;
+        writeln!(output, "**Period**: {} to {}", 
+            since.strftime("%Y-%m-%d %H:%M"),
+            now.strftime("%Y-%m-%d %H:%M"))?;
+        writeln!(output, "**Generated**: {}", now.strftime("%Y-%m-%d %H:%M:%S"))?;
+        Ok(())
+    }
+
+    fn write_errors(&self, output: &mut String, errors: &[String]) -> Result<()> {
+        writeln!(output, "\n## ⚠️ Warnings\n")?;
+        for error in errors {
+            writeln!(output, "- {}", error)?;
+        }
+        Ok(())
+    }
+
+    fn write_summary(&self, output: &mut String, activities: &BTreeMap<String, RepoActivity>) -> Result<()> {
+        writeln!(output, "\n## 📊 Summary\n")?;
+
+        let mut total_new_issues = 0;
+        let mut total_updated_issues = 0;
+        let mut total_new_prs = 0;
+        let mut total_updated_prs = 0;
+
+        for activity in activities.values() {
+            total_new_issues += activity.new_issues.len();
+            total_updated_issues += activity.updated_issues.len();
+            total_new_prs += activity.new_prs.len();
+            total_updated_prs += activity.updated_prs.len();
+        }
+
+        writeln!(output, "- **Repositories**: {}", activities.len())?;
+        writeln!(output, "- **New Issues**: {}", total_new_issues)?;
+        writeln!(output, "- **Updated Issues**: {}", total_updated_issues)?;
+        writeln!(output, "- **New Pull Requests**: {}", total_new_prs)?;
+        writeln!(output, "- **Updated Pull Requests**: {}", total_updated_prs)?;
+
+        Ok(())
+    }
+
+    fn write_activities(&self, output: &mut String, activities: &BTreeMap<String, RepoActivity>) -> Result<()> {
+        writeln!(output, "\n## 📋 Activity by Repository\n")?;
+
+        for (repo_name, activity) in activities {
+            let total = activity.new_issues.len() + activity.updated_issues.len() + 
+                       activity.new_prs.len() + activity.updated_prs.len();
+            
+            if total == 0 {
+                continue;
+            }
+
+            writeln!(output, "### {}\n", repo_name)?;
+
+            if !activity.new_prs.is_empty() {
+                writeln!(output, "#### 🆕 New Pull Requests\n")?;
+                for pr in &activity.new_prs {
+                    self.write_issue_line(output, pr)?;
+                }
+                writeln!(output)?;
+            }
+
+            if !activity.updated_prs.is_empty() {
+                writeln!(output, "#### 🔄 Updated Pull Requests\n")?;
+                for pr in &activity.updated_prs {
+                    self.write_issue_line(output, pr)?;
+                }
+                writeln!(output)?;
+            }
+
+            if !activity.new_issues.is_empty() {
+                writeln!(output, "#### 🆕 New Issues\n")?;
+                for issue in &activity.new_issues {
+                    self.write_issue_line(output, issue)?;
+                }
+                writeln!(output)?;
+            }
+
+            if !activity.updated_issues.is_empty() {
+                writeln!(output, "#### 🔄 Updated Issues\n")?;
+                for issue in &activity.updated_issues {
+                    self.write_issue_line(output, issue)?;
+                }
+                writeln!(output)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn write_issue_line(&self, output: &mut String, issue: &Issue) -> Result<()> {
+        let state_emoji = match issue.state {
+            IssueState::Open => "🟢",
+            IssueState::Closed => "🔴",
+            IssueState::Merged => "🟣",
+        };
+
+        let labels = if issue.labels.is_empty() {
+            String::new()
+        } else {
+            let label_names: Vec<String> = issue.labels.iter()
+                .map(|l| format!("`{}`", l.name))
+                .collect();
+            format!(" {}", label_names.join(" "))
+        };
+
+        writeln!(output, "- {} [#{}]({}) {}{} by @{}", 
+            state_emoji,
+            issue.number,
+            issue.url,
+            issue.title,
+            labels,
+            issue.author.login)?;
+
+        Ok(())
+    }
+
+    fn write_footer(&self, output: &mut String) -> Result<()> {
+        writeln!(output, "\n---")?;
+        writeln!(output, "\n*Generated by gh-daily-report v{}*", env!("CARGO_PKG_VERSION"))?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::github::{Issue, Author, CommentCount, Label};
+
+    #[test]
+    fn test_template_render_empty() {
+        let config = Config::default();
+        let template = ReportTemplate::new(&config);
+        let activities = BTreeMap::new();
+        let now = Timestamp::now();
+        let since = now - 24_i64.hours();
+        
+        let result = template.render(&activities, since, now, &[]).unwrap();
+        assert!(result.contains("No Activity"));
+    }
+
+    #[test]
+    fn test_template_render_with_issues() {
+        let config = Config::default();
+        let template = ReportTemplate::new(&config);
+        
+        let mut activities = BTreeMap::new();
+        let mut repo_activity = RepoActivity::default();
+        
+        repo_activity.new_issues.push(Issue {
+            number: 42,
+            title: "Test Issue".to_string(),
+            body: None,
+            state: IssueState::Open,
+            author: Author {
+                login: "testuser".to_string(),
+                user_type: None,
+            },
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
+            labels: vec![Label { 
+                name: "bug".to_string(), 
+                color: Some("red".to_string()),
+                description: None,
+            }],
+            url: "https://github.com/test/repo/issues/42".to_string(),
+            comments: CommentCount { total_count: 0 },
+            is_pull_request: false,
+        });
+        
+        activities.insert("test/repo".to_string(), repo_activity);
+        
+        let now = Timestamp::now();
+        let since = now - 24_i64.hours();
+        
+        let result = template.render(&activities, since, now, &[]).unwrap();
+        assert!(result.contains("test/repo"));
+        assert!(result.contains("Test Issue"));
+        assert!(result.contains("#42"));
+        assert!(result.contains("`bug`"));
+    }
+}
