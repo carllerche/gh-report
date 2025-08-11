@@ -1,4 +1,4 @@
-use crate::config::{Config, Label, Importance};
+use crate::config::{Config, Importance};
 use crate::github::{Issue, RepoActivity};
 use std::collections::{BTreeMap, HashMap};
 

@@ -161,14 +161,23 @@ gh-daily-report/
 - Context injection for Claude
 - Handling edge cases (empty data, API limits)
 
-### Milestone 6: Dynamic Repository Management (2-3 days)
+### Milestone 6: Dynamic Repository Management ✅ COMPLETE
 **Goal**: Auto-detect and manage repositories
 
 **Deliverables**:
-- [ ] Activity scoring system
-- [ ] Auto-add/remove logic
-- [ ] `gh-report init` command
-- [ ] Repository activity analysis
+- [x] Activity scoring system
+- [x] Auto-add/remove logic
+- [x] `gh-report init` command
+- [x] Repository activity analysis
+
+**Completed**: 2024-01-11
+- Dynamic repository discovery via gh search
+- Activity scoring based on commits/PRs/issues/comments
+- Auto-add repositories with high activity
+- Auto-remove inactive repositories
+- gh-report init command with repository discovery
+- Integration with main report generation
+- 6 passing tests for dynamic management
 
 **Testing Strategy**:
 - Unit tests for scoring calculations

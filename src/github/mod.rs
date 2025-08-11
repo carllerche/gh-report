@@ -5,7 +5,7 @@ mod models;
 mod client;
 
 pub use models::*;
-pub use client::*;
+pub use client::GitHubClient;
 
 #[cfg(test)]
 pub use client::MockGitHub;

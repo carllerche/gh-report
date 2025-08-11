@@ -245,6 +245,25 @@ Use this pattern for:
   - Context-aware AI summaries
   - Intelligent filtering based on watch rules
 
+**Milestone 6: Dynamic Repository Management**
+- ✅ Dynamic module (src/dynamic/)
+  - DynamicRepoManager for auto-add/remove
+  - RepositoryDiscovery via gh search
+  - Activity scoring system
+- ✅ Discovery features
+  - Search by author, mentions, assignee, reviews
+  - Activity metrics (commits/PRs/issues/comments)
+  - Deduplication of discovered repos
+- ✅ Auto-management
+  - Add repos above activity threshold
+  - Remove inactive repos after N days
+  - Only auto-manage auto-tracked repos
+- ✅ gh-report init command
+  - Discovers active repositories
+  - Creates config with found repos
+  - Saves initial state
+  - Activity score display
+
 ### API Notes
 - **jiff date/time**: Use hours for Timestamp arithmetic, not days
   - Example: `(days as i64 * 24).hours()` instead of `days.days()`

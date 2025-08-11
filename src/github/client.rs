@@ -17,6 +17,12 @@ impl GitHubClient {
     pub fn new() -> Result<Self> {
         Ok(GitHubClient::Real(RealGitHub::new()?))
     }
+    
+    /// Create a mock client for testing
+    #[cfg(test)]
+    pub fn mock() -> Self {
+        GitHubClient::Mock(MockGitHub::new())
+    }
 
     /// Fetch issues and PRs for a repository
     pub fn fetch_issues(&self, repo: &str, since: Option<Timestamp>) -> Result<Vec<Issue>> {

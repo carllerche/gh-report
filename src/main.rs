@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use gh_daily_report::{cli::{Cli, Commands}, Config, State, github::GitHubClient, report::ReportGenerator};
+use gh_daily_report::{cli::{Cli, Commands}, Config, State, github::GitHubClient, report::ReportGenerator, dynamic::DynamicRepoManager};
 use std::path::PathBuf;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -72,6 +72,34 @@ fn generate_report(cli: &Cli) -> Result<()> {
         info!("Clearing cache");
         clear_cache(&config)?;
     }
+    
+    // Create GitHub client for dynamic updates
+    let github_client = GitHubClient::new()
+        .context("Failed to create GitHub client")?;
+    
+    // Update dynamic repositories if enabled
+    if config.dynamic_repos.enabled {
+        info!("Updating dynamic repository list");
+        let mut manager = DynamicRepoManager::new(&config, &mut state, &github_client);
+        match manager.update_repositories() {
+            Ok(result) => {
+                if !result.added.is_empty() {
+                    println!("➕ Added {} new repositories", result.added.len());
+                    for repo in result.added.iter().take(5) {
+                        println!("   - {}", repo);
+                    }
+                }
+                if !result.removed.is_empty() {
+                    println!("➖ Removed {} inactive repositories", result.removed.len());
+                }
+                info!("Repository update: {} added, {} removed, {} tracked total",
+                    result.added.len(), result.removed.len(), result.total_tracked);
+            }
+            Err(e) => {
+                warn!("Failed to update dynamic repositories: {}", e);
+            }
+        }
+    }
 
     if cli.dry_run {
         info!("Dry run mode - showing what would be done");
@@ -117,12 +145,8 @@ fn generate_report(cli: &Cli) -> Result<()> {
         println!("✓ First run - no previous report found");
     }
     
-    // Create GitHub client
-    println!("📊 Fetching GitHub activity...");
-    let github_client = GitHubClient::new()
-        .context("Failed to create GitHub client")?;
-    
     // Generate the report
+    println!("📊 Fetching GitHub activity...");
     let generator = ReportGenerator::new(github_client, &config, &state);
     let report = generator.generate(lookback_days)
         .context("Failed to generate report")?;
@@ -156,19 +180,90 @@ fn init_command(lookback: u32, output: Option<PathBuf>) -> Result<()> {
 
     println!("Analyzing GitHub activity for the past {} days...", lookback);
     
-    // TODO: Implement GitHub activity analysis (Milestone 6)
-    println!("⚠️  GitHub analysis not yet implemented (Milestone 6)");
-    println!("Creating default configuration instead...");
-
-    // Create a default configuration for now
-    let config = Config::default();
+    // Check GitHub CLI first
+    match gh_daily_report::github::check_gh_version() {
+        Ok(version) => info!("Using gh version {}", version),
+        Err(e) => {
+            error!("GitHub CLI check failed: {}", e);
+            println!("❌ {}", e);
+            println!("\nPlease install GitHub CLI from: https://cli.github.com/");
+            return Err(e);
+        }
+    }
+    
+    // Create GitHub client
+    let github_client = GitHubClient::new()
+        .context("Failed to create GitHub client")?;
+    
+    // Create default config and state for discovery
+    let mut config = Config::default();
+    let mut state = State::default();
+    
+    // Use dynamic repo manager to discover repositories
+    let mut manager = DynamicRepoManager::new(&config, &mut state, &github_client);
+    let init_result = manager.initialize_repositories(lookback)
+        .context("Failed to discover repositories")?;
+    
+    println!("✓ Found {} repositories with recent activity", init_result.total_found);
+    
+    if init_result.repositories.is_empty() {
+        println!("\n⚠️  No repositories found with recent activity.");
+        println!("Creating default configuration without repositories.");
+    } else {
+        println!("\nTop repositories by activity score:");
+        for (repo, score) in init_result.repositories.iter().take(10) {
+            println!("  - {} (score: {})", repo, score);
+        }
+        
+        if init_result.repositories.len() > 10 {
+            println!("  ... and {} more", init_result.repositories.len() - 10);
+        }
+        
+        // Add discovered repos to config
+        for (repo_name, _score) in &init_result.repositories {
+            config.repos.push(gh_daily_report::config::RepoConfig {
+                name: repo_name.clone(),
+                labels: vec![],
+                watch_rules: None,
+                importance_override: None,
+                custom_context: None,
+            });
+        }
+    }
+    
+    // Write configuration
     let config_str = toml::to_string_pretty(&config)
         .context("Failed to serialize config")?;
 
     std::fs::write(&config_path, config_str)
         .with_context(|| format!("Failed to write config to {:?}", config_path))?;
 
-    println!("✓ Configuration created at: {:?}", config_path);
+    println!("\n✓ Configuration created at: {:?}", config_path);
+    
+    // Also save initial state
+    let state_path = config.settings.state_file.clone();
+    let expanded_state_path = if let Some(s) = state_path.to_str() {
+        if s.starts_with("~/") {
+            let home = dirs::home_dir().context("Could not determine home directory")?;
+            home.join(&s[2..])
+        } else {
+            state_path
+        }
+    } else {
+        state_path
+    };
+    
+    // Create state directory if needed
+    if let Some(parent) = expanded_state_path.parent() {
+        std::fs::create_dir_all(parent)
+            .context("Failed to create state directory")?;
+    }
+    
+    state.save(&expanded_state_path)
+        .context("Failed to save initial state")?;
+    
+    println!("✓ Initial state saved");
+    
     println!("\nNext steps:");
     println!("1. Set your Anthropic API key:");
     println!("   export ANTHROPIC_API_KEY='your-key-here'");

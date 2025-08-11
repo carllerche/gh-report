@@ -1,5 +1,5 @@
 use anyhow::Result;
-use jiff::{Timestamp, ToSpan};
+use jiff::Timestamp;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
@@ -250,6 +250,7 @@ impl<'a> ReportTemplate<'a> {
 mod tests {
     use super::*;
     use crate::github::{Issue, Author, CommentCount, Label};
+    use jiff::ToSpan;
 
     #[test]
     fn test_template_render_empty() {
