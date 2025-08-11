@@ -1,0 +1,123 @@
+# Example configuration for gh-daily-report
+# Copy to ~/.gh-report.toml and customize
+
+[settings]
+# Where to save generated reports
+report_dir = "~/Github Reports"
+
+# Where to store state file (tracks last run)
+state_file = "~/Github Reports/.gh-report-state.json"
+
+# File naming pattern for reports
+# Variables: {yyyy}, {mm}, {dd}, {short-title}
+file_name_format = "{yyyy-mm-dd} - Github - {short-title}"
+
+# Maximum days to look back if tool hasn't run recently
+max_lookback_days = 30
+
+# Data limits per report
+max_issues_per_report = 100
+max_comments_per_report = 500
+
+# When to stop watching inactive repos (days)
+inactive_repo_threshold_days = 30
+
+# Claude API Configuration
+[claude]
+# Model selection - aliases or specific versions
+# Aliases: "sonnet", "haiku", "opus"
+primary_model = "sonnet"    # For important sections
+secondary_model = "haiku"    # For FYI sections
+
+# Cache settings
+cache_responses = true
+cache_ttl_hours = 24
+
+# Report template (optional - has good defaults)
+[report]
+template = """
+# GitHub Activity Report - {date}
+
+## 🚨 Action Required
+{action_required}
+
+## 👀 Needs Attention  
+{needs_attention}
+
+## 📋 Key Changes and Proposals
+{key_changes}
+
+## 💡 Suggested Actions
+{suggested_actions}
+
+## 📰 FYI
+{fyi}
+
+## 📊 Repository Activity Changes
+{repo_changes}
+
+---
+*Generated at {timestamp} | Est. cost: ${cost}*
+"""
+
+# Labels define reusable watching patterns
+[[labels]]
+name = "my-projects"
+description = "Projects I own and maintain"
+watch_rules = ["all_activity"]
+importance = "high"
+context = """
+These are my personal projects. I need to see all activity and 
+respond to issues promptly.
+"""
+
+[[labels]]
+name = "contributing"
+description = "Open source projects I contribute to"
+watch_rules = ["mentions", "review_requests"]
+importance = "medium"
+context = """
+Projects where I'm a contributor. Focus on PRs that need my review
+and issues where I'm mentioned.
+"""
+
+[[labels]]
+name = "monitoring"
+description = "Projects I just want to monitor"
+watch_rules = ["breaking_changes", "security_issues"]
+importance = "low"
+context = """
+Dependencies and tools I use. Only care about major changes that
+might affect my projects.
+"""
+
+# Repository configurations (optional - can rely on dynamic detection)
+[[repos]]
+name = "myuser/important-project"
+labels = ["my-projects"]
+importance_override = "critical"  # Override label importance
+custom_context = """
+This is my main project. Pay special attention to:
+- API design discussions
+- Performance issues
+- Security reports
+"""
+
+# Dynamic repository detection
+[dynamic_repos]
+enabled = true
+auto_add_threshold_days = 7      # Add repo if active in last 7 days
+auto_remove_threshold_days = 30  # Remove if inactive for 30 days
+activity_weights = { commits = 4, prs = 3, issues = 2, comments = 1 }
+min_activity_score = 5            # Minimum score to auto-add
+
+# Watch rules define what patterns to look for
+[watch_rules]
+# You can customize these or use the defaults
+api_changes = ["public API", "breaking change", "deprecation", "new feature"]
+breaking_changes = ["BREAKING", "migration", "major version"]
+security_issues = ["security", "vulnerability", "CVE", "exploit"]
+performance = ["performance", "regression", "benchmark", "slow"]
+mentions = ["@{username}"]  # {username} is replaced with your GitHub username
+review_requests = ["review requested", "PTAL", "feedback needed"]
+all_activity = []  # Empty means watch everything
