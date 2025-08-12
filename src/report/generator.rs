@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use crate::config::Config;
 use crate::github::{GitHubClient, Issue};
 use crate::state::State;
-use crate::claude::{ClaudeClient, MessagesRequest, Message, resolve_model_alias, estimate_tokens, estimate_cost};
+use crate::claude::{ClaudeInterface, MessagesRequest, Message, resolve_model_alias, estimate_tokens, estimate_cost};
 use crate::claude::prompts::{system_prompt, summarize_activities_prompt, generate_title_prompt};
 use crate::intelligence::IntelligentAnalyzer;
 use crate::cache::{CacheManager, generate_cache_key};
@@ -15,7 +15,7 @@ use super::{Report, ReportTemplate, group_activities_by_repo};
 
 pub struct ReportGenerator<'a> {
     github_client: GitHubClient,
-    claude_client: Option<ClaudeClient>,
+    claude_client: Option<ClaudeInterface>,
     config: &'a Config,
     state: &'a State,
     cache_manager: Option<CacheManager>,
@@ -23,20 +23,11 @@ pub struct ReportGenerator<'a> {
 
 impl<'a> ReportGenerator<'a> {
     pub fn new(github_client: GitHubClient, config: &'a Config, state: &'a State) -> Self {
-        // Try to create Claude client if API key is available
-        let claude_client = match std::env::var("ANTHROPIC_API_KEY") {
-            Ok(_) => match ClaudeClient::new() {
-                Ok(client) => {
-                    info!("Claude API client initialized");
-                    Some(client)
-                }
-                Err(e) => {
-                    warn!("Failed to initialize Claude client: {}", e);
-                    None
-                }
-            },
-            Err(_) => {
-                info!("ANTHROPIC_API_KEY not set, running without AI summarization");
+        // Try to create Claude client based on config
+        let claude_client = match ClaudeInterface::new(&config.claude) {
+            Ok(client) => client,
+            Err(e) => {
+                warn!("Failed to initialize Claude: {}", e);
                 None
             }
         };
@@ -303,7 +294,7 @@ impl<'a> ReportGenerator<'a> {
     
     fn generate_ai_summary(
         &self,
-        claude: &ClaudeClient,
+        claude: &ClaudeInterface,
         activities: &BTreeMap<String, crate::github::RepoActivity>,
     ) -> Result<(String, String, f32)> {
         self.generate_ai_summary_with_context(claude, activities, None)
@@ -311,7 +302,7 @@ impl<'a> ReportGenerator<'a> {
     
     fn generate_ai_summary_with_context(
         &self,
-        claude: &ClaudeClient,
+        claude: &ClaudeInterface,
         activities: &BTreeMap<String, crate::github::RepoActivity>,
         context: Option<&str>,
     ) -> Result<(String, String, f32)> {

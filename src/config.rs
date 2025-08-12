@@ -52,6 +52,8 @@ pub struct ClaudeConfig {
     pub cache_responses: bool,
     #[serde(default = "default_cache_ttl")]
     pub cache_ttl_hours: u32,
+    #[serde(default = "default_claude_backend")]
+    pub backend: ClaudeBackend,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -124,6 +126,14 @@ pub enum Importance {
     Critical,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ClaudeBackend {
+    Api,
+    Cli,
+    Auto,  // Try CLI first, fall back to API
+}
+
 impl Config {
     /// Load configuration from the default location or a specified path
     pub fn load(path: Option<&Path>) -> Result<Self> {
@@ -170,6 +180,7 @@ impl Config {
                 secondary_model: default_secondary_model(),
                 cache_responses: default_cache_responses(),
                 cache_ttl_hours: default_cache_ttl(),
+                backend: default_claude_backend(),
             },
             report: ReportConfig {
                 template: default_template(),
@@ -303,6 +314,10 @@ fn default_cache_enabled() -> bool {
 
 fn default_compression_enabled() -> bool {
     true
+}
+
+fn default_claude_backend() -> ClaudeBackend {
+    ClaudeBackend::Auto
 }
 
 fn default_watch_rules() -> HashMap<String, Vec<String>> {

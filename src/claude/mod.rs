@@ -3,10 +3,14 @@ use std::env;
 
 mod models;
 mod client;
+mod cli_client;
+mod claude_interface;
 pub mod prompts;
 
 pub use models::*;
 pub use client::*;
+pub use cli_client::ClaudeCLI;
+pub use claude_interface::ClaudeInterface;
 
 #[cfg(test)]
 pub use client::MockClaude;
