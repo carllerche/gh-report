@@ -23,6 +23,14 @@ pub struct Cli {
     /// Generate report for the past week
     #[arg(long, conflicts_with = "since")]
     pub week: bool,
+    
+    /// Override the directory where reports are saved
+    #[arg(long)]
+    pub report_dir: Option<PathBuf>,
+    
+    /// Override the state file location
+    #[arg(long)]
+    pub state: Option<PathBuf>,
 
     /// Override the output file location
     #[arg(short, long)]

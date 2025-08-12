@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use gh_daily_report::{cli::{Cli, Commands}, Config, State, github::GitHubClient, report::ReportGenerator, dynamic::DynamicRepoManager};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -60,11 +60,36 @@ fn generate_report(cli: &Cli) -> Result<()> {
     }
 
     info!("Loading configuration");
-    let config = Config::load(cli.config.as_deref())
+    let mut config = Config::load(cli.config.as_deref())
         .context("Failed to load configuration")?;
+    
+    // Override report directory if specified
+    if let Some(report_dir) = &cli.report_dir {
+        info!("Using custom report directory: {:?}", report_dir);
+        config.settings.report_dir = report_dir.clone();
+        
+        // Create the report directory if it doesn't exist
+        std::fs::create_dir_all(report_dir)
+            .with_context(|| format!("Failed to create report directory: {:?}", report_dir))?;
+    }
+    
+    // Override state file location if specified
+    let state_file = if let Some(state_path) = &cli.state {
+        info!("Using custom state file: {:?}", state_path);
+        
+        // Create parent directory if needed
+        if let Some(parent) = state_path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create state directory: {:?}", parent))?;
+        }
+        
+        state_path.clone()
+    } else {
+        config.settings.state_file.clone()
+    };
 
     info!("Loading state");
-    let mut state = State::load(&config.settings.state_file)
+    let mut state = State::load(&state_file)
         .context("Failed to load state")?;
 
     // Handle cache operations
@@ -173,7 +198,7 @@ fn generate_report(cli: &Cli) -> Result<()> {
     
     // Update state
     state.update_last_run();
-    state.save(&config.settings.state_file)
+    state.save(&state_file)
         .context("Failed to save state")?;
 
     Ok(())

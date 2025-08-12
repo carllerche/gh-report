@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use tracing::warn;
 use reqwest::blocking::{Client as HttpClient, Response};
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use serde_json;
@@ -57,6 +58,15 @@ impl RealClaude {
     /// Create a new real Claude client
     pub fn new() -> Result<Self> {
         let api_key = get_api_key()?;
+        
+        // Basic validation of API key format
+        if api_key.trim().is_empty() {
+            return Err(anyhow!("ANTHROPIC_API_KEY is empty"));
+        }
+        
+        if !api_key.starts_with("sk-") {
+            tracing::warn!("ANTHROPIC_API_KEY doesn't start with 'sk-' - this may not be a valid Anthropic API key");
+        }
         
         let client = HttpClient::builder()
             .timeout(Duration::from_secs(60))

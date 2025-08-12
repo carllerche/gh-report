@@ -359,8 +359,28 @@ impl<'a> ReportGenerator<'a> {
         .with_max_tokens(4000);
         
         // Send request
-        let response = claude.messages(request)
-            .context("Failed to get summary from Claude")?;
+        let response = match claude.messages(request) {
+            Ok(resp) => resp,
+            Err(e) => {
+                // Log the actual error for debugging
+                warn!("Claude API error details: {:#}", e);
+                
+                let error_str = e.to_string();
+                
+                // Provide helpful error messages based on the error type
+                if error_str.contains("ANTHROPIC_API_KEY") {
+                    return Err(anyhow::anyhow!("ANTHROPIC_API_KEY environment variable is not set. Please set it to use AI summarization."));
+                } else if error_str.contains("invalid x-api-key") || error_str.contains("authentication_error") {
+                    return Err(anyhow::anyhow!("Invalid ANTHROPIC_API_KEY. Please check that your API key is correct and active."));
+                } else if error_str.contains("rate_limit") {
+                    return Err(anyhow::anyhow!("Claude API rate limit exceeded. Please try again later."));
+                } else if error_str.contains("overloaded") {
+                    return Err(anyhow::anyhow!("Claude API is currently overloaded. Please try again in a few moments."));
+                }
+                
+                return Err(e).context("Failed to get summary from Claude");
+            }
+        };
         
         let summary = response.get_text();
         let output_tokens = response.usage.output_tokens;
