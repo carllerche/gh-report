@@ -6,9 +6,7 @@ pub mod report;
 pub mod claude;
 pub mod intelligence;
 pub mod dynamic;
-
-// Modules to be implemented in future milestones
-// pub mod cache;   // Milestone 7
+pub mod cache;
 
 pub use config::Config;
 pub use state::State;

@@ -30,12 +30,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Claude API client - Milestone 4
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"] }
 
+# Caching - Milestone 7
+sha2 = "0.10"
+flate2 = "1.0"
+
 # Future dependencies (commented for now, will add as needed)
 # tokio = { version = "1", features = ["full"] }  # Milestone 9
 # indicatif = "0.17"  # Milestone 8
-# sha2 = "0.10"  # Milestone 7
-# flate2 = "1.0"  # Milestone 7
-# regex = "1.10"  # Milestone 5
+# regex = "1.10"  # Was for Milestone 5 but not needed
 
 [dev-dependencies]
 # Testing utilities

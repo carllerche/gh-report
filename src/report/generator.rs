@@ -9,6 +9,7 @@ use crate::state::State;
 use crate::claude::{ClaudeClient, MessagesRequest, Message, resolve_model_alias, estimate_tokens, estimate_cost};
 use crate::claude::prompts::{system_prompt, summarize_activities_prompt, generate_title_prompt};
 use crate::intelligence::IntelligentAnalyzer;
+use crate::cache::{CacheManager, generate_cache_key};
 use super::{Report, ReportTemplate, group_activities_by_repo};
 
 pub struct ReportGenerator<'a> {
@@ -16,6 +17,7 @@ pub struct ReportGenerator<'a> {
     claude_client: Option<ClaudeClient>,
     config: &'a Config,
     state: &'a State,
+    cache_manager: Option<CacheManager>,
 }
 
 impl<'a> ReportGenerator<'a> {
@@ -38,11 +40,36 @@ impl<'a> ReportGenerator<'a> {
             }
         };
         
+        // Initialize cache manager if caching is enabled
+        let cache_manager = if config.cache.enabled {
+            let cache_dir = dirs::cache_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("gh-daily-report");
+            
+            let manager = CacheManager::new(
+                cache_dir,
+                config.cache.ttl_hours,
+                config.cache.compression_enabled,
+            );
+            
+            // Initialize cache directories
+            if let Err(e) = manager.initialize() {
+                warn!("Failed to initialize cache: {}", e);
+                None
+            } else {
+                info!("Cache initialized with {} hour TTL", config.cache.ttl_hours);
+                Some(manager)
+            }
+        } else {
+            None
+        };
+        
         ReportGenerator { 
             github_client, 
             claude_client,
             config, 
-            state 
+            state,
+            cache_manager,
         }
     }
 
@@ -59,18 +86,66 @@ impl<'a> ReportGenerator<'a> {
         for (repo_name, _repo_state) in &self.state.tracked_repos {
             info!("Fetching issues for {}", repo_name);
             
-            match self.github_client.fetch_issues(repo_name, Some(since)) {
-                Ok(mut issues) => {
-                    issues.retain(|issue| issue.updated_at >= since);
-                    
-                    info!("  Found {} active issues/PRs", issues.len());
-                    all_issues.extend(issues);
+            // Try cache first if available
+            let cache_key = generate_cache_key(&[
+                "issues",
+                repo_name,
+                &since.as_millisecond().to_string(),
+            ]);
+            
+            let cached_issues = if let Some(ref cache) = self.cache_manager {
+                match cache.get_github_response(&cache_key) {
+                    Ok(Some(data)) => {
+                        match serde_json::from_slice::<Vec<Issue>>(&data) {
+                            Ok(issues) => {
+                                info!("  Using cached data for {} ({} issues)", repo_name, issues.len());
+                                Some(issues)
+                            }
+                            Err(e) => {
+                                warn!("Failed to deserialize cached issues: {}", e);
+                                None
+                            }
+                        }
+                    }
+                    Ok(None) => None,
+                    Err(e) => {
+                        warn!("Cache read error: {}", e);
+                        None
+                    }
                 }
-                Err(e) => {
-                    warn!("Failed to fetch issues for {}: {}", repo_name, e);
-                    errors.push(format!("⚠️ Could not fetch data for {}: {}", repo_name, e));
+            } else {
+                None
+            };
+            
+            let issues = if let Some(cached) = cached_issues {
+                cached
+            } else {
+                // Fetch from GitHub
+                match self.github_client.fetch_issues(repo_name, Some(since)) {
+                    Ok(mut issues) => {
+                        issues.retain(|issue| issue.updated_at >= since);
+                        
+                        info!("  Found {} active issues/PRs", issues.len());
+                        
+                        // Cache the result
+                        if let Some(ref cache) = self.cache_manager {
+                            let data = serde_json::to_vec(&issues).unwrap_or_default();
+                            if let Err(e) = cache.cache_github_response(&cache_key, &data) {
+                                warn!("Failed to cache GitHub response: {}", e);
+                            }
+                        }
+                        
+                        issues
+                    }
+                    Err(e) => {
+                        warn!("Failed to fetch issues for {}: {}", repo_name, e);
+                        errors.push(format!("⚠️ Could not fetch data for {}: {}", repo_name, e));
+                        continue;
+                    }
                 }
-            }
+            };
+            
+            all_issues.extend(issues);
         }
 
         // TODO: Add include_mentions configuration option
@@ -163,6 +238,34 @@ impl<'a> ReportGenerator<'a> {
         // Generate the prompt
         let prompt = summarize_activities_prompt(activities, context);
         
+        // Generate cache key for this prompt
+        let prompt_hash = {
+            use sha2::{Sha256, Digest};
+            let mut hasher = Sha256::new();
+            hasher.update(prompt.as_bytes());
+            format!("{:x}", hasher.finalize())
+        };
+        
+        let cache_key = generate_cache_key(&[
+            "claude_summary",
+            &prompt_hash[..16], // Use first 16 chars of hash
+        ]);
+        
+        // Try to get from cache
+        if let Some(ref cache) = self.cache_manager {
+            if let Ok(Some(cached)) = cache.get_claude_response(&cache_key) {
+                // Parse cached response (format: "TITLE\n---\nSUMMARY\n---\nCOST")
+                let parts: Vec<&str> = cached.split("\n---\n").collect();
+                if parts.len() == 3 {
+                    let title = parts[0].to_string();
+                    let summary = parts[1].to_string();
+                    let cost: f32 = parts[2].parse().unwrap_or(0.0);
+                    info!("Using cached AI summary (saved cost: ${:.4})", cost);
+                    return Ok((summary, title, 0.0)); // Return 0 cost since we didn't call API
+                }
+            }
+        }
+        
         // Estimate tokens
         let input_tokens = estimate_tokens(&prompt) + estimate_tokens(&system_prompt());
         
@@ -203,7 +306,17 @@ impl<'a> ReportGenerator<'a> {
             title_response.usage.output_tokens,
         );
         
-        Ok((summary, title, summary_cost + title_cost))
+        let total_cost = summary_cost + title_cost;
+        
+        // Cache the result
+        if let Some(ref cache) = self.cache_manager {
+            let cached_data = format!("{}\n---\n{}\n---\n{}", title, summary, total_cost);
+            if let Err(e) = cache.cache_claude_response(&cache_key, &cached_data) {
+                warn!("Failed to cache Claude response: {}", e);
+            }
+        }
+        
+        Ok((summary, title, total_cost))
     }
 
     fn generate_title(&self, since: Timestamp, now: Timestamp, activities: &BTreeMap<String, crate::github::RepoActivity>) -> String {

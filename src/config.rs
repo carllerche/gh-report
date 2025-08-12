@@ -17,6 +17,8 @@ pub struct Config {
     pub dynamic_repos: DynamicReposConfig,
     #[serde(default)]
     pub watch_rules: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    pub cache: CacheConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -101,6 +103,18 @@ pub struct ActivityWeights {
     pub comments: u32,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CacheConfig {
+    #[serde(default = "default_cache_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_cache_ttl")]
+    pub ttl_hours: u32,
+    #[serde(default = "default_compression_enabled")]
+    pub compression_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_dir: Option<PathBuf>,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum Importance {
@@ -170,6 +184,12 @@ impl Config {
                 min_activity_score: default_min_score(),
             },
             watch_rules: default_watch_rules(),
+            cache: CacheConfig {
+                enabled: default_cache_enabled(),
+                ttl_hours: default_cache_ttl(),
+                compression_enabled: default_compression_enabled(),
+                cache_dir: None,
+            },
         }
     }
 }
@@ -277,6 +297,14 @@ fn default_min_score() -> u32 {
     5
 }
 
+fn default_cache_enabled() -> bool {
+    true
+}
+
+fn default_compression_enabled() -> bool {
+    true
+}
+
 fn default_watch_rules() -> HashMap<String, Vec<String>> {
     let mut rules = HashMap::new();
     rules.insert(
@@ -345,6 +373,18 @@ impl Default for DynamicReposConfig {
             auto_remove_threshold_days: default_auto_remove_threshold(),
             activity_weights: default_activity_weights(),
             min_activity_score: default_min_score(),
+        }
+    }
+}
+
+// Default implementation for CacheConfig
+impl Default for CacheConfig {
+    fn default() -> Self {
+        CacheConfig {
+            enabled: default_cache_enabled(),
+            ttl_hours: default_cache_ttl(),
+            compression_enabled: default_compression_enabled(),
+            cache_dir: None,
         }
     }
 }
