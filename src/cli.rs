@@ -31,6 +31,10 @@ pub struct Cli {
     /// Override the state file location
     #[arg(long)]
     pub state: Option<PathBuf>,
+    
+    /// Override Claude backend (api, cli, auto)
+    #[arg(long, value_name = "BACKEND")]
+    pub claude_backend: Option<String>,
 
     /// Override the output file location
     #[arg(short, long)]

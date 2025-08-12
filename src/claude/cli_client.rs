@@ -73,13 +73,23 @@ impl ClaudeCLI {
             let output = child.wait_with_output()
                 .context("Failed to wait for claude CLI")?;
             
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            
+            debug!("Claude CLI stdout: {} chars", stdout.len());
+            debug!("Claude CLI stderr: {}", if stderr.is_empty() { "(empty)" } else { &stderr });
+            
             if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(anyhow!("claude CLI failed: {}", stderr));
+                return Err(anyhow!("claude CLI failed with exit code {:?}: stderr={}", 
+                    output.status.code(), stderr));
             }
             
-            let response = String::from_utf8_lossy(&output.stdout).to_string();
-            Ok(response.trim().to_string())
+            if stdout.is_empty() {
+                return Err(anyhow!("claude CLI returned empty output. stderr={}", 
+                    if stderr.is_empty() { "(empty)" } else { &stderr }));
+            }
+            
+            Ok(stdout)
         } else {
             // Just send the prompt directly
             cmd.stdin(std::process::Stdio::piped());
@@ -97,13 +107,23 @@ impl ClaudeCLI {
             let output = child.wait_with_output()
                 .context("Failed to wait for claude CLI")?;
             
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            
+            debug!("Claude CLI stdout: {} chars", stdout.len());
+            debug!("Claude CLI stderr: {}", if stderr.is_empty() { "(empty)" } else { &stderr });
+            
             if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(anyhow!("claude CLI failed: {}", stderr));
+                return Err(anyhow!("claude CLI failed with exit code {:?}: stderr={}", 
+                    output.status.code(), stderr));
             }
             
-            let response = String::from_utf8_lossy(&output.stdout).to_string();
-            Ok(response.trim().to_string())
+            if stdout.is_empty() {
+                return Err(anyhow!("claude CLI returned empty output. stderr={}", 
+                    if stderr.is_empty() { "(empty)" } else { &stderr }));
+            }
+            
+            Ok(stdout)
         }
     }
     

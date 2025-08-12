@@ -63,6 +63,23 @@ fn generate_report(cli: &Cli) -> Result<()> {
     let mut config = Config::load(cli.config.as_deref())
         .context("Failed to load configuration")?;
     
+    // Override Claude backend if specified
+    if let Some(backend_str) = &cli.claude_backend {
+        use gh_daily_report::config::ClaudeBackend;
+        let backend = match backend_str.to_lowercase().as_str() {
+            "api" => ClaudeBackend::Api,
+            "cli" => ClaudeBackend::Cli,
+            "auto" => ClaudeBackend::Auto,
+            _ => {
+                error!("Invalid Claude backend: {}", backend_str);
+                println!("❌ Invalid Claude backend: '{}'. Valid options: api, cli, auto", backend_str);
+                std::process::exit(1);
+            }
+        };
+        info!("Using Claude backend override: {:?}", backend);
+        config.claude.backend = backend;
+    }
+    
     // Override report directory if specified
     if let Some(report_dir) = &cli.report_dir {
         info!("Using custom report directory: {:?}", report_dir);
