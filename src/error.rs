@@ -30,6 +30,11 @@ impl UserError {
         self
     }
     
+    /// Get the error message
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+    
     /// Format the error for display
     pub fn display(&self) {
         eprintln!("\n❌ Error: {}", self.message);
@@ -132,5 +137,107 @@ pub trait UserFriendly<T> {
 impl<T> UserFriendly<T> for anyhow::Result<T> {
     fn user_friendly(self) -> Result<T, UserError> {
         self.map_err(|e| user_friendly_error(&e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::anyhow;
+    
+    #[test]
+    fn test_user_error_creation() {
+        let error = UserError::new("Test error")
+            .with_details("Some details")
+            .with_suggestion("Try this");
+        
+        assert_eq!(error.message, "Test error");
+        assert_eq!(error.details, Some("Some details".to_string()));
+        assert_eq!(error.suggestion, Some("Try this".to_string()));
+    }
+    
+    #[test]
+    fn test_user_error_display() {
+        let error = UserError::new("Test error")
+            .with_details("Some details");
+        
+        let display = format!("{}", error);
+        assert_eq!(display, "Test error: Some details");
+        
+        let error = UserError::new("Test error");
+        let display = format!("{}", error);
+        assert_eq!(display, "Test error");
+    }
+    
+    #[test]
+    fn test_github_cli_error_detection() {
+        let error = anyhow!("gh: command not found");
+        let user_error = user_friendly_error(&error);
+        
+        assert_eq!(user_error.message, "GitHub CLI is not installed");
+        assert!(user_error.suggestion.is_some());
+    }
+    
+    #[test]
+    fn test_auth_error_detection() {
+        let error = anyhow!("gh auth login required");
+        let user_error = user_friendly_error(&error);
+        
+        assert_eq!(user_error.message, "Not authenticated with GitHub");
+        assert!(user_error.suggestion.unwrap().contains("gh auth login"));
+    }
+    
+    #[test]
+    fn test_api_key_error_detection() {
+        let error = anyhow!("ANTHROPIC_API_KEY not set");
+        let user_error = user_friendly_error(&error);
+        
+        assert_eq!(user_error.message, "Anthropic API key not configured");
+        assert!(user_error.suggestion.unwrap().contains("ANTHROPIC_API_KEY"));
+    }
+    
+    #[test]
+    fn test_rate_limit_error_detection() {
+        let error = anyhow!("rate limit exceeded");
+        let user_error = user_friendly_error(&error);
+        
+        assert_eq!(user_error.message, "API rate limit exceeded");
+        assert!(user_error.suggestion.unwrap().contains("Wait"));
+    }
+    
+    #[test]
+    fn test_config_error_detection() {
+        let error = anyhow!("Failed to read config");
+        let user_error = user_friendly_error(&error);
+        
+        assert_eq!(user_error.message, "Configuration file not found");
+        assert!(user_error.suggestion.unwrap().contains("gh-report init"));
+    }
+    
+    #[test]
+    fn test_permission_error_detection() {
+        let error = anyhow!("Permission denied");
+        let user_error = user_friendly_error(&error);
+        
+        assert_eq!(user_error.message, "Permission denied");
+        assert!(user_error.details.unwrap().contains("Cannot write"));
+    }
+    
+    #[test]
+    fn test_network_error_detection() {
+        let error = anyhow!("network connection failed");
+        let user_error = user_friendly_error(&error);
+        
+        assert_eq!(user_error.message, "Network connection failed");
+        assert!(user_error.suggestion.unwrap().contains("internet"));
+    }
+    
+    #[test]
+    fn test_unknown_error_fallback() {
+        let error = anyhow!("Some random error");
+        let user_error = user_friendly_error(&error);
+        
+        assert_eq!(user_error.message, "An unexpected error occurred");
+        assert_eq!(user_error.details, Some("Some random error".to_string()));
     }
 }

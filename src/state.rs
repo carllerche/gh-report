@@ -83,6 +83,18 @@ impl State {
         }
     }
 
+    /// Add a repository to track
+    pub fn add_repository(&mut self, repo_name: &str) {
+        self.tracked_repos.insert(
+            repo_name.to_string(),
+            RepoState {
+                last_seen: Timestamp::now(),
+                activity_score: 0,
+                auto_tracked: false,
+            },
+        );
+    }
+    
     /// Check if a repository should be auto-removed due to inactivity
     pub fn should_remove_repo(&self, repo_name: &str, threshold_days: u32) -> bool {
         if let Some(repo_state) = self.tracked_repos.get(repo_name) {

@@ -149,3 +149,96 @@ pub struct RepoActivity {
     pub updated_prs: Vec<Issue>,
     pub new_comments: Vec<(Issue, Vec<Comment>)>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_issue_serialization() {
+        let issue = Issue {
+            number: 42,
+            title: "Test Issue".to_string(),
+            body: Some("Test body".to_string()),
+            state: IssueState::Open,
+            author: Author {
+                login: "testuser".to_string(),
+                user_type: Some("User".to_string()),
+            },
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
+            labels: vec![Label {
+                name: "bug".to_string(),
+                color: Some("red".to_string()),
+                description: Some("Bug report".to_string()),
+            }],
+            url: "https://github.com/test/repo/issues/42".to_string(),
+            comments: CommentCount { total_count: 5 },
+            is_pull_request: false,
+        };
+        
+        // Test serialization
+        let json = serde_json::to_string(&issue).unwrap();
+        assert!(json.contains("\"number\":42"));
+        assert!(json.contains("\"title\":\"Test Issue\""));
+        
+        // Test deserialization
+        let issue2: Issue = serde_json::from_str(&json).unwrap();
+        assert_eq!(issue.number, issue2.number);
+        assert_eq!(issue.title, issue2.title);
+    }
+    
+    #[test]
+    fn test_issue_state() {
+        let states = vec![IssueState::Open, IssueState::Closed, IssueState::Merged];
+        
+        for state in states {
+            let json = serde_json::to_string(&state).unwrap();
+            let state2: IssueState = serde_json::from_str(&json).unwrap();
+            assert_eq!(state, state2);
+        }
+    }
+    
+    #[test]
+    fn test_repo_activity_default() {
+        let activity = RepoActivity::default();
+        
+        assert!(activity.new_issues.is_empty());
+        assert!(activity.updated_issues.is_empty());
+        assert!(activity.new_prs.is_empty());
+        assert!(activity.updated_prs.is_empty());
+        assert!(activity.new_comments.is_empty());
+    }
+    
+    #[test]
+    fn test_comment_serialization() {
+        let comment = Comment {
+            id: 12345,
+            author: Author {
+                login: "commenter".to_string(),
+                user_type: None,
+            },
+            body: "This is a comment".to_string(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
+        };
+        
+        let json = serde_json::to_string(&comment).unwrap();
+        let comment2: Comment = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(comment.id, comment2.id);
+        assert_eq!(comment.body, comment2.body);
+        assert_eq!(comment.author.login, comment2.author.login);
+    }
+    
+    #[test]
+    fn test_repo_status() {
+        assert_eq!(RepoStatus::Active, RepoStatus::Active);
+        assert_ne!(RepoStatus::Active, RepoStatus::Deleted);
+        
+        // Test serialization
+        let json = serde_json::to_string(&RepoStatus::Inaccessible).unwrap();
+        let status: RepoStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(status, RepoStatus::Inaccessible);
+    }
+}

@@ -61,3 +61,65 @@ pub enum Commands {
     /// Rebuild state file from existing reports
     RebuildState,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+    
+    #[test]
+    fn test_cli_parsing_basic() {
+        let args = vec!["gh-report"];
+        let cli = Cli::parse_from(args);
+        
+        assert!(cli.command.is_none());
+        assert!(!cli.dry_run);
+        assert!(!cli.estimate_cost);
+        assert!(!cli.no_cache);
+        assert!(!cli.clear_cache);
+        assert_eq!(cli.verbose, 0);
+    }
+    
+    #[test]
+    fn test_cli_parsing_init() {
+        let args = vec!["gh-report", "init", "--lookback", "14"];
+        let cli = Cli::parse_from(args);
+        
+        match cli.command {
+            Some(Commands::Init { lookback, output }) => {
+                assert_eq!(lookback, 14);
+                assert!(output.is_none());
+            }
+            _ => panic!("Expected Init command"),
+        }
+    }
+    
+    #[test]
+    fn test_cli_parsing_flags() {
+        let args = vec!["gh-report", "--dry-run", "--estimate-cost", "-vv"];
+        let cli = Cli::parse_from(args);
+        
+        assert!(cli.dry_run);
+        assert!(cli.estimate_cost);
+        assert_eq!(cli.verbose, 2);
+    }
+    
+    #[test]
+    fn test_cli_parsing_config_path() {
+        let args = vec!["gh-report", "--config", "/path/to/config.toml"];
+        let cli = Cli::parse_from(args);
+        
+        assert_eq!(cli.config, Some(PathBuf::from("/path/to/config.toml")));
+    }
+    
+    #[test]
+    fn test_cli_parsing_rebuild_state() {
+        let args = vec!["gh-report", "rebuild-state"];
+        let cli = Cli::parse_from(args);
+        
+        match cli.command {
+            Some(Commands::RebuildState) => {}
+            _ => panic!("Expected RebuildState command"),
+        }
+    }
+}

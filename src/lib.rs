@@ -10,5 +10,8 @@ pub mod cache;
 pub mod progress;
 pub mod error;
 
+#[cfg(test)]
+pub mod test_utils;
+
 pub use config::Config;
 pub use state::State;

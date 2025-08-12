@@ -388,3 +388,83 @@ impl Default for CacheConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    
+    #[test]
+    fn test_config_defaults() {
+        let config = Config::default();
+        
+        assert_eq!(config.settings.max_lookback_days, 30);
+        assert_eq!(config.settings.max_issues_per_report, 100);
+        assert_eq!(config.settings.max_comments_per_report, 500);
+        assert_eq!(config.settings.inactive_repo_threshold_days, 30);
+        
+        assert_eq!(config.claude.primary_model, "sonnet");
+        assert_eq!(config.claude.secondary_model, "haiku");
+        assert!(config.claude.cache_responses);
+        assert_eq!(config.claude.cache_ttl_hours, 24);
+        
+        assert!(config.dynamic_repos.enabled);
+        assert_eq!(config.dynamic_repos.auto_add_threshold_days, 7);
+        assert_eq!(config.dynamic_repos.auto_remove_threshold_days, 30);
+        
+        assert!(config.cache.enabled);
+        assert_eq!(config.cache.ttl_hours, 24);
+        assert!(config.cache.compression_enabled);
+    }
+    
+    #[test]
+    fn test_path_expansion() {
+        let home = dirs::home_dir().unwrap();
+        let path = PathBuf::from("~/test/path");
+        let expanded = expand_tilde(&path).unwrap();
+        
+        assert_eq!(expanded, home.join("test/path"));
+        
+        // Test path without tilde
+        let absolute_path = PathBuf::from("/absolute/path");
+        let expanded = expand_tilde(&absolute_path).unwrap();
+        assert_eq!(expanded, absolute_path);
+    }
+    
+    #[test]
+    fn test_config_serialization() {
+        let config = Config::default();
+        
+        // Serialize to TOML
+        let toml_str = toml::to_string(&config).unwrap();
+        assert!(toml_str.contains("[settings]"));
+        assert!(toml_str.contains("[claude]"));
+        
+        // Deserialize back
+        let config2: Config = toml::from_str(&toml_str).unwrap();
+        assert_eq!(config.settings.max_lookback_days, config2.settings.max_lookback_days);
+    }
+    
+    #[test]
+    fn test_importance_ordering() {
+        use Importance::*;
+        
+        assert!(Low < Medium);
+        assert!(Medium < High);
+        assert!(High < Critical);
+        
+        let mut importances = vec![Critical, Low, High, Medium];
+        importances.sort();
+        assert_eq!(importances, vec![Low, Medium, High, Critical]);
+    }
+    
+    #[test]
+    fn test_activity_weights() {
+        let weights = default_activity_weights();
+        
+        assert_eq!(weights.commits, 4);
+        assert_eq!(weights.prs, 3);
+        assert_eq!(weights.issues, 2);
+        assert_eq!(weights.comments, 1);
+    }
+}
