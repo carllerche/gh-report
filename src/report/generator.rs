@@ -91,15 +91,40 @@ impl<'a> ReportGenerator<'a> {
         if dry_run {
             info!("DRY RUN: Showing what would be fetched without generating report");
         }
+        
+        // Check if we have any repositories to report on
+        let total_repos = self.state.tracked_repos.len() + self.config.repos.len();
+        if total_repos == 0 {
+            warn!("No repositories configured or tracked - report will be empty");
+            warn!("Config repos: {}, State tracked repos: {}", 
+                self.config.repos.len(), 
+                self.state.tracked_repos.len());
+            warn!("Run 'gh-report init' to discover repositories or add them to the config file");
+        }
 
         let mut all_issues = Vec::new();
         let mut errors = Vec::new();
         
+        // Collect all repositories to process (from both state and config)
+        let mut repos_to_process = Vec::new();
+        
+        // Add tracked repos from state
+        for (repo_name, _) in &self.state.tracked_repos {
+            repos_to_process.push(repo_name.clone());
+        }
+        
+        // Add repos from config
+        for repo_config in &self.config.repos {
+            if !repos_to_process.contains(&repo_config.name) {
+                repos_to_process.push(repo_config.name.clone());
+            }
+        }
+        
         // Start main progress bar
-        let total_repos = self.state.tracked_repos.len();
+        let total_repos = repos_to_process.len();
         let _main_pb = progress.start_report_generation(total_repos);
 
-        for (repo_name, _repo_state) in &self.state.tracked_repos {
+        for repo_name in &repos_to_process {
             let repo_pb = progress.start_repo_fetch(repo_name);
             
             // Try cache first if available

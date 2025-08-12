@@ -150,6 +150,56 @@ pub struct RepoActivity {
     pub new_comments: Vec<(Issue, Vec<Comment>)>,
 }
 
+/// REST API Issue representation (for deserialization from gh api)
+#[derive(Debug, Clone, Deserialize)]
+pub struct RestIssue {
+    pub number: u32,
+    pub title: String,
+    pub body: Option<String>,
+    pub state: String,
+    pub user: RestUser,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    pub labels: Vec<Label>,
+    pub html_url: String,
+    pub comments: u32,
+    pub pull_request: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RestUser {
+    pub login: String,
+    #[serde(rename = "type")]
+    pub user_type: Option<String>,
+}
+
+impl From<RestIssue> for Issue {
+    fn from(rest: RestIssue) -> Self {
+        Issue {
+            number: rest.number,
+            title: rest.title,
+            body: rest.body,
+            state: match rest.state.as_str() {
+                "open" => IssueState::Open,
+                "closed" => IssueState::Closed,
+                _ => IssueState::Closed,
+            },
+            author: Author {
+                login: rest.user.login,
+                user_type: rest.user.user_type,
+            },
+            created_at: rest.created_at,
+            updated_at: rest.updated_at,
+            labels: rest.labels,
+            url: rest.html_url,
+            comments: CommentCount {
+                total_count: rest.comments,
+            },
+            is_pull_request: rest.pull_request.is_some(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

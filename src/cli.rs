@@ -20,6 +20,10 @@ pub struct Cli {
     #[arg(long)]
     pub since: Option<String>,
 
+    /// Generate report for the past week
+    #[arg(long, conflicts_with = "since")]
+    pub week: bool,
+
     /// Override the output file location
     #[arg(short, long)]
     pub output: Option<PathBuf>,
@@ -102,6 +106,15 @@ mod tests {
         assert!(cli.dry_run);
         assert!(cli.estimate_cost);
         assert_eq!(cli.verbose, 2);
+    }
+    
+    #[test]
+    fn test_cli_parsing_week_flag() {
+        let args = vec!["gh-report", "--week"];
+        let cli = Cli::parse_from(args);
+        
+        assert!(cli.week);
+        assert!(cli.since.is_none());
     }
     
     #[test]

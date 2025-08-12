@@ -79,6 +79,7 @@ fn generate_report(cli: &Cli) -> Result<()> {
     
     // Update dynamic repositories if enabled
     if config.dynamic_repos.enabled {
+        println!("🔍 Discovering active repositories...");
         info!("Updating dynamic repository list");
         let mut manager = DynamicRepoManager::new(&config, &mut state, &github_client);
         match manager.update_repositories() {
@@ -88,17 +89,25 @@ fn generate_report(cli: &Cli) -> Result<()> {
                     for repo in result.added.iter().take(5) {
                         println!("   - {}", repo);
                     }
+                    if result.added.len() > 5 {
+                        println!("   ... and {} more", result.added.len() - 5);
+                    }
                 }
                 if !result.removed.is_empty() {
                     println!("➖ Removed {} inactive repositories", result.removed.len());
                 }
+                println!("📚 Tracking {} repositories total", result.total_tracked);
                 info!("Repository update: {} added, {} removed, {} tracked total",
                     result.added.len(), result.removed.len(), result.total_tracked);
             }
             Err(e) => {
                 warn!("Failed to update dynamic repositories: {}", e);
+                println!("⚠️  Failed to discover repositories: {}", e);
+                println!("    You may need to manually add repositories to the config file");
             }
         }
+    } else {
+        println!("📚 Tracking {} configured repositories", state.tracked_repos.len());
     }
 
     // Dry run is now handled in the report generator
@@ -110,7 +119,10 @@ fn generate_report(cli: &Cli) -> Result<()> {
     }
 
     // Determine the lookback days
-    let lookback_days = if let Some(since_str) = &cli.since {
+    let lookback_days = if cli.week {
+        info!("Generating weekly report (7 days)");
+        7
+    } else if let Some(since_str) = &cli.since {
         info!("Using custom since date: {}", since_str);
         // For now, parse simple day count like "7d" or just a number
         if since_str.ends_with('d') {
@@ -143,6 +155,12 @@ fn generate_report(cli: &Cli) -> Result<()> {
     
     // Generate the report
     println!("📊 Fetching GitHub activity...");
+    
+    // Check if AI summarization is available
+    if std::env::var("ANTHROPIC_API_KEY").is_err() {
+        println!("ℹ️  Running without AI summarization (ANTHROPIC_API_KEY not set)");
+    }
+    
     let generator = ReportGenerator::new(github_client, &config, &state);
     let report = generator.generate(lookback_days)
         .context("Failed to generate report")?;

@@ -133,44 +133,40 @@ impl RealGitHub {
 
     /// Fetch issues and PRs for a repository
     pub fn fetch_issues(&self, repo: &str, since: Option<Timestamp>) -> Result<Vec<Issue>> {
-        let endpoint = format!("repos/{}/issues", repo);
-        let mut args = vec![
+        use crate::github::models::RestIssue;
+        
+        // Build endpoint with query parameters
+        let endpoint = if let Some(since_ts) = since {
+            format!("repos/{}/issues?since={}", repo, since_ts.to_string())
+        } else {
+            format!("repos/{}/issues", repo)
+        };
+        
+        let args = vec![
             "api",
             &endpoint,
             "--paginate",
-            "--json",
-            "number,title,body,state,author,createdAt,updatedAt,labels,url,comments,isPullRequest",
         ];
 
-        // Add since parameter if provided
-        let since_param;
-        if let Some(since_ts) = since {
-            since_param = format!("since={}", since_ts.to_string());
-            args.push("--field");
-            args.push(&since_param);
-        }
-
-        self.execute_gh(&args)
+        // Deserialize as RestIssue and convert to Issue
+        let rest_issues: Vec<RestIssue> = self.execute_gh(&args)?;
+        Ok(rest_issues.into_iter().map(Into::into).collect())
     }
 
     /// Fetch comments for an issue/PR
     pub fn fetch_comments(&self, repo: &str, issue_number: u32, since: Option<Timestamp>) -> Result<Vec<Comment>> {
-        let endpoint = format!("repos/{}/issues/{}/comments", repo, issue_number);
-        let mut args = vec![
+        // Build endpoint with query parameters
+        let endpoint = if let Some(since_ts) = since {
+            format!("repos/{}/issues/{}/comments?since={}", repo, issue_number, since_ts.to_string())
+        } else {
+            format!("repos/{}/issues/{}/comments", repo, issue_number)
+        };
+        
+        let args = vec![
             "api",
             &endpoint,
             "--paginate",
-            "--json",
-            "id,body,author,createdAt,updatedAt",
         ];
-
-        // Add since parameter if provided
-        let since_param;
-        if let Some(since_ts) = since {
-            since_param = format!("since={}", since_ts.to_string());
-            args.push("--field");
-            args.push(&since_param);
-        }
 
         self.execute_gh(&args)
     }
@@ -181,8 +177,6 @@ impl RealGitHub {
         let args = vec![
             "api",
             &endpoint,
-            "--json",
-            "name,owner,nameWithOwner,description,isPrivate,isArchived,pushedAt,defaultBranchRef",
         ];
 
         self.execute_gh(&args)
@@ -191,14 +185,12 @@ impl RealGitHub {
     /// Search for mentions of the current user
     pub fn fetch_mentions(&self, since: Timestamp) -> Result<Vec<Issue>> {
         let query = format!("involves:@me updated:>{}", since.strftime("%Y-%m-%d"));
-        let field_param = format!("q={}", query);
+        // URL encode the query parameter
+        let encoded_query = query.replace(" ", "%20").replace(":", "%3A").replace(">", "%3E");
+        let endpoint = format!("search/issues?q={}", encoded_query);
         let args = vec![
             "api",
-            "search/issues",
-            "--field",
-            &field_param,
-            "--json",
-            "items",
+            &endpoint,
         ];
 
         #[derive(serde::Deserialize)]
@@ -212,7 +204,7 @@ impl RealGitHub {
 
     /// Get current authenticated user
     pub fn get_current_user(&self) -> Result<String> {
-        let output = self.execute_gh_raw(&["api", "user", "--json", "login"])?;
+        let output = self.execute_gh_raw(&["api", "user"])?;
         
         #[derive(serde::Deserialize)]
         struct User {
