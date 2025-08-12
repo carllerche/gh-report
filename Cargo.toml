@@ -34,10 +34,13 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"] }
 sha2 = "0.10"
 flate2 = "1.0"
 
+# User Experience - Milestone 8
+indicatif = "0.17"
+atty = "0.2"
+ctrlc = "3.4"
+
 # Future dependencies (commented for now, will add as needed)
 # tokio = { version = "1", features = ["full"] }  # Milestone 9
-# indicatif = "0.17"  # Milestone 8
-# regex = "1.10"  # Was for Milestone 5 but not needed
 
 [dev-dependencies]
 # Testing utilities

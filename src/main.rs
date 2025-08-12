@@ -101,11 +101,7 @@ fn generate_report(cli: &Cli) -> Result<()> {
         }
     }
 
-    if cli.dry_run {
-        info!("Dry run mode - showing what would be done");
-        dry_run(&config, &state)?;
-        return Ok(());
-    }
+    // Dry run is now handled in the report generator
 
     if cli.estimate_cost {
         info!("Estimating Claude API costs");
@@ -298,48 +294,6 @@ fn clear_cache(config: &Config) -> Result<()> {
     Ok(())
 }
 
-fn dry_run(config: &Config, state: &State) -> Result<()> {
-    println!("✓ Configuration loaded");
-    
-    if let Some(last_run) = state.last_run {
-        println!("✓ Last report: {}", last_run);
-    } else {
-        println!("✓ First run - no previous report");
-    }
-
-    println!("\nWould check {} repositories:", state.tracked_repos.len());
-    
-    // Group repos by importance
-    let mut by_importance = std::collections::BTreeMap::new();
-    for (name, _repo_state) in &state.tracked_repos {
-        // TODO: Get actual importance from config
-        let importance = "unknown";
-        by_importance.entry(importance).or_insert(Vec::new()).push(name);
-    }
-
-    for (importance, repos) in by_importance {
-        println!("\n  {} priority ({}):", importance, repos.len());
-        for repo in repos.iter().take(3) {
-            println!("    - {}", repo);
-        }
-        if repos.len() > 3 {
-            println!("    ... and {} more", repos.len() - 3);
-        }
-    }
-
-    println!("\nWould fetch:");
-    println!("  - Issues/PRs from last {} days", config.settings.max_lookback_days);
-    println!("  - Comments on open issues/PRs");
-    println!("  - Mentions across GitHub");
-
-    println!("\nEstimated:");
-    println!("  - GitHub API calls: ~{}", state.tracked_repos.len() * 3);
-    println!("  - Claude API calls: 3-5");
-    println!("  - Estimated cost: $0.02-0.04");
-    println!("  - Estimated time: 30-45 seconds");
-
-    Ok(())
-}
 
 fn estimate_costs(config: &Config, state: &State) -> Result<()> {
     // TODO: Implement actual cost estimation based on data volume

@@ -10,6 +10,7 @@ use crate::claude::{ClaudeClient, MessagesRequest, Message, resolve_model_alias,
 use crate::claude::prompts::{system_prompt, summarize_activities_prompt, generate_title_prompt};
 use crate::intelligence::IntelligentAnalyzer;
 use crate::cache::{CacheManager, generate_cache_key};
+use crate::progress::ProgressReporter;
 use super::{Report, ReportTemplate, group_activities_by_repo};
 
 pub struct ReportGenerator<'a> {
@@ -74,17 +75,32 @@ impl<'a> ReportGenerator<'a> {
     }
 
     pub fn generate(&self, lookback_days: u32) -> Result<Report> {
+        self.generate_with_progress(lookback_days, false)
+    }
+    
+    pub fn generate_with_progress(&self, lookback_days: u32, dry_run: bool) -> Result<Report> {
+        let mut progress = ProgressReporter::new();
         let now = Timestamp::now();
         let since = now - (lookback_days as i64 * 24).hours();
         
-        info!("Generating report for the last {} days", lookback_days);
-        info!("Fetching activity since {}", since.strftime("%Y-%m-%d %H:%M"));
+        if !progress.is_interactive() {
+            info!("Generating report for the last {} days", lookback_days);
+            info!("Fetching activity since {}", since.strftime("%Y-%m-%d %H:%M"));
+        }
+        
+        if dry_run {
+            info!("DRY RUN: Showing what would be fetched without generating report");
+        }
 
         let mut all_issues = Vec::new();
         let mut errors = Vec::new();
+        
+        // Start main progress bar
+        let total_repos = self.state.tracked_repos.len();
+        let _main_pb = progress.start_report_generation(total_repos);
 
         for (repo_name, _repo_state) in &self.state.tracked_repos {
-            info!("Fetching issues for {}", repo_name);
+            let repo_pb = progress.start_repo_fetch(repo_name);
             
             // Try cache first if available
             let cache_key = generate_cache_key(&[
@@ -98,7 +114,9 @@ impl<'a> ReportGenerator<'a> {
                     Ok(Some(data)) => {
                         match serde_json::from_slice::<Vec<Issue>>(&data) {
                             Ok(issues) => {
-                                info!("  Using cached data for {} ({} issues)", repo_name, issues.len());
+                                if !progress.is_interactive() {
+                                    info!("  Using cached data for {} ({} issues)", repo_name, issues.len());
+                                }
                                 Some(issues)
                             }
                             Err(e) => {
@@ -125,19 +143,25 @@ impl<'a> ReportGenerator<'a> {
                     Ok(mut issues) => {
                         issues.retain(|issue| issue.updated_at >= since);
                         
-                        info!("  Found {} active issues/PRs", issues.len());
+                        if !progress.is_interactive() {
+                            info!("  Found {} active issues/PRs", issues.len());
+                        }
                         
-                        // Cache the result
-                        if let Some(ref cache) = self.cache_manager {
-                            let data = serde_json::to_vec(&issues).unwrap_or_default();
-                            if let Err(e) = cache.cache_github_response(&cache_key, &data) {
-                                warn!("Failed to cache GitHub response: {}", e);
+                        // Cache the result (unless dry run)
+                        if !dry_run {
+                            if let Some(ref cache) = self.cache_manager {
+                                let data = serde_json::to_vec(&issues).unwrap_or_default();
+                                if let Err(e) = cache.cache_github_response(&cache_key, &data) {
+                                    warn!("Failed to cache GitHub response: {}", e);
+                                }
                             }
                         }
                         
                         issues
                     }
                     Err(e) => {
+                        let error_msg = format!("{}", e);
+                        progress.report_repo_error(repo_pb.as_ref(), repo_name, &error_msg);
                         warn!("Failed to fetch issues for {}: {}", repo_name, e);
                         errors.push(format!("⚠️ Could not fetch data for {}: {}", repo_name, e));
                         continue;
@@ -145,6 +169,7 @@ impl<'a> ReportGenerator<'a> {
                 }
             };
             
+            progress.complete_repo_fetch(repo_pb.as_ref(), repo_name, issues.len());
             all_issues.extend(issues);
         }
 
@@ -167,6 +192,32 @@ impl<'a> ReportGenerator<'a> {
             }
         }
 
+        // Stop here if dry run
+        if dry_run {
+            info!("\nDRY RUN Summary:");
+            info!("  Total repositories: {}", self.state.tracked_repos.len());
+            info!("  Total items found: {}", all_issues.len());
+            info!("  Errors encountered: {}", errors.len());
+            
+            let activities = group_activities_by_repo(all_issues);
+            for (repo, activity) in &activities {
+                let total = activity.new_issues.len() + activity.updated_issues.len() + 
+                           activity.new_prs.len() + activity.updated_prs.len();
+                if total > 0 {
+                    info!("  {}: {} items", repo, total);
+                }
+            }
+            
+            // Return empty report for dry run
+            return Ok(Report {
+                title: "Dry Run - No Report Generated".to_string(),
+                content: String::new(),
+                timestamp: now,
+                estimated_cost: 0.0,
+            });
+        }
+        
+        // Group activities and run analysis for actual report generation
         let activities = group_activities_by_repo(all_issues);
         
         // Apply intelligent analysis
@@ -179,11 +230,15 @@ impl<'a> ReportGenerator<'a> {
         
         // Generate AI summary if Claude is available
         let (ai_summary, ai_title, estimated_cost) = if let Some(claude) = &self.claude_client {
+            let ai_pb = progress.start_ai_summary();
             // Include context from intelligent analysis
             let context_prompt = Some(analysis.context_prompt.as_str());
             match self.generate_ai_summary_with_context(claude, &activities, context_prompt) {
                 Ok((summary, title, cost)) => {
-                    info!("Generated AI summary (estimated cost: ${:.4})", cost);
+                    progress.complete_ai_summary(ai_pb.as_ref(), cost);
+                    if !progress.is_interactive() {
+                        info!("Generated AI summary (estimated cost: ${:.4})", cost);
+                    }
                     (Some(summary), Some(title), cost)
                 }
                 Err(e) => {
