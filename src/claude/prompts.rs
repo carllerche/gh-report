@@ -39,8 +39,8 @@ pub fn summarize_activities_prompt(
             prompt.push_str(&format!("### New Pull Requests ({})\n", activity.new_prs.len()));
             for pr in &activity.new_prs {
                 prompt.push_str(&format!(
-                    "- PR #{}: {} (by @{})\n",
-                    pr.number, pr.title, pr.author.login
+                    "- PR #{}: {} (by @{}) - {}\n",
+                    pr.number, pr.title, pr.author.login, pr.url
                 ));
                 if let Some(body) = &pr.body {
                     if !body.is_empty() && body.len() < 200 {
@@ -55,8 +55,8 @@ pub fn summarize_activities_prompt(
             prompt.push_str(&format!("### Updated Pull Requests ({})\n", activity.updated_prs.len()));
             for pr in &activity.updated_prs {
                 prompt.push_str(&format!(
-                    "- PR #{}: {} (comments: {})\n",
-                    pr.number, pr.title, pr.comments.total_count
+                    "- PR #{}: {} (comments: {}) - {}\n",
+                    pr.number, pr.title, pr.comments.total_count, pr.url
                 ));
             }
             prompt.push('\n');
@@ -66,8 +66,8 @@ pub fn summarize_activities_prompt(
             prompt.push_str(&format!("### New Issues ({})\n", activity.new_issues.len()));
             for issue in &activity.new_issues {
                 prompt.push_str(&format!(
-                    "- Issue #{}: {} (by @{})\n",
-                    issue.number, issue.title, issue.author.login
+                    "- Issue #{}: {} (by @{}) - {}\n",
+                    issue.number, issue.title, issue.author.login, issue.url
                 ));
                 // Add labels if present
                 if !issue.labels.is_empty() {
@@ -82,8 +82,8 @@ pub fn summarize_activities_prompt(
             prompt.push_str(&format!("### Updated Issues ({})\n", activity.updated_issues.len()));
             for issue in &activity.updated_issues {
                 prompt.push_str(&format!(
-                    "- Issue #{}: {} (comments: {})\n",
-                    issue.number, issue.title, issue.comments.total_count
+                    "- Issue #{}: {} (comments: {}) - {}\n",
+                    issue.number, issue.title, issue.comments.total_count, issue.url
                 ));
             }
             prompt.push('\n');
@@ -96,6 +96,7 @@ pub fn summarize_activities_prompt(
     prompt.push_str("3. Identifies any blocking issues or urgent matters\n");
     prompt.push_str("4. Suggests action items if applicable\n");
     prompt.push_str("5. Keep it concise - focus on what matters most\n");
+    prompt.push_str("6. When mentioning specific issues or PRs, always include the URL in markdown link format: [#123](URL)\n");
     
     prompt
 }

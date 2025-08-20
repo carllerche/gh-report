@@ -62,17 +62,17 @@ impl<'a> ReportTemplate<'a> {
         
         // Add action items if available
         if !analysis.action_items.is_empty() {
-            writeln!(&mut output, "\n## 🎯 Action Items\n")?;
+            writeln!(&mut output, "\n## Action Items\n")?;
             for (i, action) in analysis.action_items.iter().enumerate() {
-                let urgency_emoji = match action.urgency {
-                    crate::intelligence::Urgency::Critical => "🔴",
-                    crate::intelligence::Urgency::High => "🟠",
-                    crate::intelligence::Urgency::Medium => "🟡",
-                    crate::intelligence::Urgency::Low => "🟢",
+                let urgency_text = match action.urgency {
+                    crate::intelligence::Urgency::Critical => "[CRITICAL]",
+                    crate::intelligence::Urgency::High => "[HIGH]",
+                    crate::intelligence::Urgency::Medium => "[MEDIUM]",
+                    crate::intelligence::Urgency::Low => "[LOW]",
                 };
                 writeln!(&mut output, "{}. {} {} - {} ([#{}]({}))",
                     i + 1,
-                    urgency_emoji,
+                    urgency_text,
                     action.description,
                     action.reason,
                     action.issue.number,
@@ -82,21 +82,21 @@ impl<'a> ReportTemplate<'a> {
             writeln!(&mut output)?;
         }
         
-        // Add AI summary if available
+        // Add highlights if available
         if let Some(summary) = ai_summary {
-            writeln!(&mut output, "\n## 🤖 AI Summary\n")?;
+            writeln!(&mut output, "\n## Highlights\n")?;
             writeln!(&mut output, "{}", summary)?;
         }
 
         if activities.is_empty() {
-            writeln!(&mut output, "\n## 📭 No Activity\n")?;
+            writeln!(&mut output, "\n## No Activity\n")?;
             writeln!(&mut output, "No issues or pull requests were updated in the specified time period.")?;
         } else {
             self.write_summary(&mut output, activities)?;
             
             // Add prioritized issues section if available
             if !analysis.prioritized_issues.is_empty() {
-                writeln!(&mut output, "\n## 🔥 Prioritized Items\n")?;
+                writeln!(&mut output, "\n## Prioritized Items\n")?;
                 
                 // Show top 10 prioritized items
                 for issue in analysis.prioritized_issues.iter().take(10) {
@@ -132,7 +132,7 @@ impl<'a> ReportTemplate<'a> {
     }
 
     fn write_errors(&self, output: &mut String, errors: &[String]) -> Result<()> {
-        writeln!(output, "\n## ⚠️ Warnings\n")?;
+        writeln!(output, "\n## Warnings\n")?;
         for error in errors {
             writeln!(output, "- {}", error)?;
         }
@@ -140,7 +140,7 @@ impl<'a> ReportTemplate<'a> {
     }
 
     fn write_summary(&self, output: &mut String, activities: &BTreeMap<String, RepoActivity>) -> Result<()> {
-        writeln!(output, "\n## 📊 Summary\n")?;
+        writeln!(output, "\n## Summary\n")?;
 
         let mut total_new_issues = 0;
         let mut total_updated_issues = 0;
@@ -164,7 +164,7 @@ impl<'a> ReportTemplate<'a> {
     }
 
     fn write_activities(&self, output: &mut String, activities: &BTreeMap<String, RepoActivity>) -> Result<()> {
-        writeln!(output, "\n## 📋 Activity by Repository\n")?;
+        writeln!(output, "\n## Activity by Repository\n")?;
 
         for (repo_name, activity) in activities {
             let total = activity.new_issues.len() + activity.updated_issues.len() + 
@@ -177,7 +177,7 @@ impl<'a> ReportTemplate<'a> {
             writeln!(output, "### {}\n", repo_name)?;
 
             if !activity.new_prs.is_empty() {
-                writeln!(output, "#### 🆕 New Pull Requests\n")?;
+                writeln!(output, "#### New Pull Requests\n")?;
                 for pr in &activity.new_prs {
                     self.write_issue_line(output, pr)?;
                 }
@@ -185,7 +185,7 @@ impl<'a> ReportTemplate<'a> {
             }
 
             if !activity.updated_prs.is_empty() {
-                writeln!(output, "#### 🔄 Updated Pull Requests\n")?;
+                writeln!(output, "#### Updated Pull Requests\n")?;
                 for pr in &activity.updated_prs {
                     self.write_issue_line(output, pr)?;
                 }
@@ -193,7 +193,7 @@ impl<'a> ReportTemplate<'a> {
             }
 
             if !activity.new_issues.is_empty() {
-                writeln!(output, "#### 🆕 New Issues\n")?;
+                writeln!(output, "#### New Issues\n")?;
                 for issue in &activity.new_issues {
                     self.write_issue_line(output, issue)?;
                 }
@@ -201,7 +201,7 @@ impl<'a> ReportTemplate<'a> {
             }
 
             if !activity.updated_issues.is_empty() {
-                writeln!(output, "#### 🔄 Updated Issues\n")?;
+                writeln!(output, "#### Updated Issues\n")?;
                 for issue in &activity.updated_issues {
                     self.write_issue_line(output, issue)?;
                 }
@@ -213,10 +213,10 @@ impl<'a> ReportTemplate<'a> {
     }
 
     fn write_issue_line(&self, output: &mut String, issue: &Issue) -> Result<()> {
-        let state_emoji = match issue.state {
-            IssueState::Open => "🟢",
-            IssueState::Closed => "🔴",
-            IssueState::Merged => "🟣",
+        let state_text = match issue.state {
+            IssueState::Open => "[OPEN]",
+            IssueState::Closed => "[CLOSED]",
+            IssueState::Merged => "[MERGED]",
         };
 
         let labels = if issue.labels.is_empty() {
@@ -229,7 +229,7 @@ impl<'a> ReportTemplate<'a> {
         };
 
         writeln!(output, "- {} [#{}]({}) {}{} by @{}", 
-            state_emoji,
+            state_text,
             issue.number,
             issue.url,
             issue.title,
