@@ -1,4 +1,4 @@
-//! Test utilities for gh-daily-report
+//! Test utilities for gh-report
 #![cfg(test)]
 
 use crate::github::{GitHubClient, MockGitHub, Issue, IssueState, Author, CommentCount, Label};

@@ -1,4 +1,4 @@
-use gh_daily_report::github::{Issue, Comment};
+use gh_report::github::{Issue, Comment};
 
 // Integration tests focus on data model serialization/deserialization
 // Mock tests are better as unit tests inside the module

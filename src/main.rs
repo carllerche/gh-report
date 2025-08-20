@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use gh_daily_report::{cli::{Cli, Commands}, Config, State, github::GitHubClient, report::ReportGenerator, dynamic::DynamicRepoManager};
+use gh_report::{cli::{Cli, Commands}, Config, State, github::GitHubClient, report::ReportGenerator, dynamic::DynamicRepoManager};
 use std::path::{Path, PathBuf};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -49,7 +49,7 @@ fn setup_logging(verbosity: u8) -> Result<()> {
 fn generate_report(cli: &Cli) -> Result<()> {
     // Check GitHub CLI first
     info!("Checking GitHub CLI");
-    match gh_daily_report::github::check_gh_version() {
+    match gh_report::github::check_gh_version() {
         Ok(version) => info!("Using gh version {}", version),
         Err(e) => {
             error!("GitHub CLI check failed: {}", e);
@@ -65,7 +65,7 @@ fn generate_report(cli: &Cli) -> Result<()> {
     
     // Override Claude backend if specified
     if let Some(backend_str) = &cli.claude_backend {
-        use gh_daily_report::config::ClaudeBackend;
+        use gh_report::config::ClaudeBackend;
         let backend = match backend_str.to_lowercase().as_str() {
             "api" => ClaudeBackend::Api,
             "cli" => ClaudeBackend::Cli,
@@ -237,7 +237,7 @@ fn init_command(lookback: u32, output: Option<PathBuf>) -> Result<()> {
     println!("Analyzing GitHub activity for the past {} days...", lookback);
     
     // Check GitHub CLI first
-    match gh_daily_report::github::check_gh_version() {
+    match gh_report::github::check_gh_version() {
         Ok(version) => info!("Using gh version {}", version),
         Err(e) => {
             error!("GitHub CLI check failed: {}", e);
@@ -277,7 +277,7 @@ fn init_command(lookback: u32, output: Option<PathBuf>) -> Result<()> {
         
         // Add discovered repos to config
         for (repo_name, _score) in &init_result.repositories {
-            config.repos.push(gh_daily_report::config::RepoConfig {
+            config.repos.push(gh_report::config::RepoConfig {
                 name: repo_name.clone(),
                 labels: vec![],
                 watch_rules: None,

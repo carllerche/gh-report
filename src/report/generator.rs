@@ -36,7 +36,7 @@ impl<'a> ReportGenerator<'a> {
         let cache_manager = if config.cache.enabled {
             let cache_dir = dirs::cache_dir()
                 .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join("gh-daily-report");
+                .join("gh-report");
             
             let manager = CacheManager::new(
                 cache_dir,

@@ -1,4 +1,4 @@
-use gh_daily_report::{Config, State};
+use gh_report::{Config, State};
 use tempfile::TempDir;
 use anyhow::Result;
 
@@ -49,7 +49,7 @@ fn test_config_validation() -> Result<()> {
 /// Test cache functionality
 #[test]
 fn test_cache_integration() -> Result<()> {
-    use gh_daily_report::cache::CacheManager;
+    use gh_report::cache::CacheManager;
     
     let temp_dir = TempDir::new()?;
     let cache_dir = temp_dir.path().to_path_buf();
@@ -84,8 +84,8 @@ fn test_cache_integration() -> Result<()> {
 /// Test intelligent analysis
 #[test]
 fn test_intelligent_analysis() -> Result<()> {
-    use gh_daily_report::intelligence::IntelligentAnalyzer;
-    use gh_daily_report::github::{Issue, RepoActivity, IssueState, Author, CommentCount, Label};
+    use gh_report::intelligence::IntelligentAnalyzer;
+    use gh_report::github::{Issue, RepoActivity, IssueState, Author, CommentCount, Label};
     use std::collections::BTreeMap;
     use jiff::Timestamp;
     
@@ -133,7 +133,7 @@ fn test_intelligent_analysis() -> Result<()> {
 /// Test dynamic repository management structures
 #[test]
 fn test_dynamic_repository_structures() -> Result<()> {
-    use gh_daily_report::dynamic::ActivityMetrics;
+    use gh_report::dynamic::ActivityMetrics;
     
     // Test activity metrics
     let metrics = ActivityMetrics {
@@ -155,7 +155,7 @@ fn test_dynamic_repository_structures() -> Result<()> {
 /// Test report structures
 #[test]
 fn test_report_structures() -> Result<()> {
-    use gh_daily_report::report::Report;
+    use gh_report::report::Report;
     use jiff::Timestamp;
     
     let report = Report {
@@ -175,7 +175,7 @@ fn test_report_structures() -> Result<()> {
 /// Test error handling
 #[test]
 fn test_error_handling() -> Result<()> {
-    use gh_daily_report::error::{UserError, user_friendly_error};
+    use gh_report::error::{UserError, user_friendly_error};
     use anyhow::anyhow;
     
     // Test GitHub CLI error
@@ -194,7 +194,7 @@ fn test_error_handling() -> Result<()> {
 /// Test configuration with custom values
 #[test]
 fn test_config_with_custom_values() -> Result<()> {
-    use gh_daily_report::config::{RepoConfig, Importance};
+    use gh_report::config::{RepoConfig, Importance};
     
     let mut config = Config::default();
     

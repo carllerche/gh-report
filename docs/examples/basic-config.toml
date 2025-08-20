@@ -1,4 +1,4 @@
-# Example configuration for gh-daily-report
+# Example configuration for gh-report
 # Copy to ~/.gh-report.toml and customize
 
 [settings]

@@ -1,10 +1,10 @@
 [package]
-name = "gh-daily-report"
+name = "gh-report"
 version = "0.1.0"
 edition = "2021"
 authors = ["Carl Lerche"]
-description = "Generate intelligent daily GitHub activity reports"
-repository = "https://github.com/carllerche/gh-daily-report"
+description = "Generate intelligent GitHub activity reports"
+repository = "https://github.com/carllerche/gh-report"
 license = "MIT"
 
 [[bin]]

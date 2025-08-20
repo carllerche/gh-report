@@ -1,11 +1,11 @@
 # Implementation Plan
 
-This document outlines the implementation roadmap for gh-daily-report, breaking the work into manageable milestones with clear deliverables and testing strategies.
+This document outlines the implementation roadmap for gh-report, breaking the work into manageable milestones with clear deliverables and testing strategies.
 
 ## Project Structure
 
 ```
-gh-daily-report/
+gh-report/
 ├── src/
 │   ├── main.rs              # CLI entry point
 │   ├── cli.rs               # Command-line argument parsing

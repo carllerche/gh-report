@@ -1,4 +1,4 @@
-# gh-daily-report
+# gh-report
 
 A command-line tool that generates intelligent daily reports of GitHub activity, providing personalized summaries and actionable insights for maintainers managing multiple repositories.
 
@@ -22,8 +22,8 @@ Managing multiple open source projects on GitHub means drowning in notifications
 
 ```bash
 # Clone and build from source (requires Rust)
-git clone https://github.com/yourusername/gh-daily-report
-cd gh-daily-report
+git clone https://github.com/yourusername/gh-report
+cd gh-report
 cargo install --path .
 ```
 
