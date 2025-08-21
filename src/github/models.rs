@@ -312,3 +312,26 @@ pub struct PrDiff {
     pub total_deletions: u32,
     pub total_files: u32,
 }
+
+/// GitHub activity event
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ActivityEvent {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub event_type: String,
+    pub actor: Author,
+    pub repo: ActivityRepo,
+    pub payload: serde_json::Value,
+    #[serde(rename = "created_at")]
+    pub created_at: Timestamp,
+    #[serde(rename = "public")]
+    pub is_public: bool,
+}
+
+/// Repository information in activity events
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ActivityRepo {
+    pub id: u64,
+    pub name: String,
+    pub url: String,
+}

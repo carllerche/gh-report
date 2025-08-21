@@ -1,6 +1,6 @@
 use crate::github::models::*;
 use anyhow::{anyhow, Context, Result};
-use jiff::Timestamp;
+use jiff::{Timestamp, ToSpan};
 use serde::de::DeserializeOwned;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -93,6 +93,15 @@ impl GitHubClient {
             GitHubClient::Real(client) => client.fetch_pr_diff(repo, pr_number),
             #[cfg(test)]
             GitHubClient::Mock(client) => client.fetch_pr_diff(repo, pr_number),
+        }
+    }
+
+    /// Fetch user's activity events
+    pub fn fetch_activity(&self, days: u32) -> Result<Vec<ActivityEvent>> {
+        match self {
+            GitHubClient::Real(client) => client.fetch_activity(days),
+            #[cfg(test)]
+            GitHubClient::Mock(client) => client.fetch_activity(days),
         }
     }
 }
@@ -282,6 +291,31 @@ impl RealGitHub {
             total_files,
         })
     }
+
+    /// Fetch user's activity events (received events for subscribed repos)
+    pub fn fetch_activity(&self, days: u32) -> Result<Vec<ActivityEvent>> {
+        // Get current username first
+        let username = self.get_current_user()?;
+        
+        // Use gh api to fetch received events (activities on subscribed repos)
+        let endpoint = format!("/users/{}/received_events", username);
+        let args = vec![
+            "api",
+            &endpoint,
+            "--paginate"
+        ];
+
+        let events: Vec<ActivityEvent> = self.execute_gh(&args)?;
+
+        // Filter by date - only include events from the last N days
+        let cutoff = jiff::Timestamp::now() - (days as i64 * 24).hours();
+        let filtered_events: Vec<ActivityEvent> = events
+            .into_iter()
+            .filter(|event| event.created_at >= cutoff)
+            .collect();
+
+        Ok(filtered_events)
+    }
 }
 
 /// Find gh executable path
@@ -392,6 +426,11 @@ impl MockGitHub {
             .find(|(num, _)| *num == pr_number)
             .map(|(_, diff)| diff.clone())
             .ok_or_else(|| anyhow!("PR #{} diff not found", pr_number))
+    }
+
+    pub fn fetch_activity(&self, _days: u32) -> Result<Vec<ActivityEvent>> {
+        // Return empty activity for mock
+        Ok(vec![])
     }
 }
 

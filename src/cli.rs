@@ -97,6 +97,23 @@ pub enum Commands {
         #[arg(long, default_value = "30")]
         lookback: u32,
     },
+
+    /// Show your GitHub activity feed
+    Activity {
+        /// Number of days to look back
+        #[arg(long, default_value = "7")]
+        days: u32,
+        
+        /// Include only these event types (comma-separated)
+        /// Examples: IssueCommentEvent,PullRequestEvent,IssuesEvent
+        #[arg(long, value_delimiter = ',')]
+        include_types: Option<Vec<String>>,
+        
+        /// Exclude these event types (comma-separated)
+        /// Examples: WatchEvent,ForkEvent,PushEvent
+        #[arg(long, value_delimiter = ',')]
+        exclude_types: Option<Vec<String>>,
+    },
 }
 
 #[cfg(test)]
@@ -237,6 +254,36 @@ mod tests {
                 assert_eq!(lookback, 14);
             }
             _ => panic!("Expected ListRepos command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_activity() {
+        let args = vec!["gh-report", "activity"];
+        let cli = Cli::parse_from(args);
+
+        match cli.command {
+            Some(Commands::Activity { days, include_types, exclude_types }) => {
+                assert_eq!(*days, 7); // default value
+                assert!(include_types.is_none());
+                assert!(exclude_types.is_none());
+            }
+            _ => panic!("Expected Activity command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_activity_with_days() {
+        let args = vec!["gh-report", "activity", "--days", "14"];
+        let cli = Cli::parse_from(args);
+
+        match cli.command {
+            Some(Commands::Activity { days, include_types, exclude_types }) => {
+                assert_eq!(*days, 14);
+                assert!(include_types.is_none());
+                assert!(exclude_types.is_none());
+            }
+            _ => panic!("Expected Activity command"),
         }
     }
 }

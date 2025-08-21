@@ -40,6 +40,10 @@ fn main() -> Result<()> {
             info!("Listing repositories with recent activity");
             list_repos_command(lookback, &cli)?;
         }
+        Some(Commands::Activity { days, ref include_types, ref exclude_types }) => {
+            info!("Showing GitHub activity feed");
+            activity_command(days, include_types.as_ref(), exclude_types.as_ref(), &cli)?;
+        }
         None => {
             // Main report generation command
             generate_report(&cli)?;
@@ -545,4 +549,356 @@ fn list_repos_command(lookback: u32, _cli: &Cli) -> Result<()> {
     println!("   - Must have recent activity (last 30 days): commits, PRs, comments, etc.");
 
     Ok(())
+}
+
+fn filter_events<'a>(
+    events: &'a [gh_report::github::ActivityEvent], 
+    include_types: Option<&Vec<String>>, 
+    exclude_types: Option<&Vec<String>>
+) -> Vec<&'a gh_report::github::ActivityEvent> {
+    let default_included_types = vec![
+        "IssueCommentEvent".to_string(),
+        "PullRequestEvent".to_string(),
+        "IssuesEvent".to_string(),
+        "PullRequestReviewCommentEvent".to_string(),
+        "PullRequestReviewEvent".to_string(),
+    ];
+    
+    events.iter().filter(|event| {
+        // First check include types (default to user's preferred list if not specified)
+        let included_types = include_types.unwrap_or(&default_included_types);
+        if !included_types.contains(&event.event_type) {
+            return false;
+        }
+        
+        // Check exclude types
+        if let Some(excluded) = exclude_types {
+            if excluded.contains(&event.event_type) {
+                return false;
+            }
+        }
+        
+        // Special filtering for IssuesEvent - exclude 'labeled' actions
+        if event.event_type == "IssuesEvent" {
+            if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
+                if action == "labeled" || action == "unlabeled" {
+                    return false;
+                }
+            }
+        }
+        
+        true
+    }).collect()
+}
+
+fn activity_command(
+    days: u32, 
+    include_types: Option<&Vec<String>>, 
+    exclude_types: Option<&Vec<String>>, 
+    _cli: &Cli
+) -> Result<()> {
+    // Check GitHub CLI first
+    match gh_report::github::check_gh_version() {
+        Ok(version) => info!("Using gh version {}", version),
+        Err(e) => {
+            error!("GitHub CLI check failed: {}", e);
+            println!("❌ {}", e);
+            println!("\nPlease install GitHub CLI from: https://cli.github.com/");
+            return Err(e);
+        }
+    }
+
+    println!("Fetching activity on repositories you're subscribed to for the last {} days...", days);
+
+    // Create GitHub client
+    let github_client = GitHubClient::new().context("Failed to create GitHub client")?;
+
+    // Fetch activity events
+    let all_events = github_client
+        .fetch_activity(days)
+        .context("Failed to fetch activity")?;
+
+    // Apply event type filtering
+    let events = filter_events(&all_events, include_types, exclude_types);
+
+    if events.is_empty() {
+        println!("\nNo matching activity found in the last {} days.", days);
+        if all_events.len() > 0 {
+            println!("({} events were filtered out)", all_events.len());
+        }
+        return Ok(());
+    }
+
+    // Group events by date → repo → issue/PR
+    use std::collections::BTreeMap;
+    
+    let mut events_by_date: BTreeMap<String, BTreeMap<String, BTreeMap<Option<IssueKey>, Vec<&gh_report::github::ActivityEvent>>>> = BTreeMap::new();
+
+    for event in &events {
+        let date_key = event.created_at.strftime("%Y-%m-%d").to_string();
+        let repo_name = event.repo.name.clone();
+        
+        // Extract issue/PR number if available
+        let issue_key = extract_issue_key(event);
+        
+        events_by_date
+            .entry(date_key)
+            .or_insert_with(BTreeMap::new)
+            .entry(repo_name)
+            .or_insert_with(BTreeMap::new)
+            .entry(issue_key)
+            .or_insert_with(Vec::new)
+            .push(event);
+    }
+
+    println!("\nActivity Summary ({} events):", events.len());
+    println!("{}", "=".repeat(60));
+
+    // Display events grouped by date → repo → issue/PR
+    for (date, repos_events) in events_by_date.iter().rev() {
+        let total_events: usize = repos_events.values()
+            .map(|repo_issues| repo_issues.values().map(|events| events.len()).sum::<usize>())
+            .sum();
+        println!("\n**{}** ({} events)", date, total_events);
+        
+        for (repo_name, issues_events) in repos_events {
+            let _repo_event_count: usize = issues_events.values().map(|events| events.len()).sum();
+            println!("  {}", repo_name);
+            
+            for (issue_key, issue_events) in issues_events {
+                match issue_key {
+                    Some(key) => {
+                        let item_type = if key.is_pr { "PR" } else { "Issue" };
+                        let actors: Vec<String> = issue_events.iter()
+                            .map(|e| format!("@{}", e.actor.login))
+                            .collect::<std::collections::HashSet<_>>()
+                            .into_iter()
+                            .collect();
+                        let actions = consolidate_actions(issue_events);
+                        println!("    {} #{}: {} ({})", item_type, key.issue_number, actions, actors.join(", "));
+                    }
+                    None => {
+                        // Events without specific issue/PR (e.g., general repo activity)
+                        for event in issue_events {
+                            let event_desc = format_activity_event(event);
+                            println!("    {}", event_desc);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    println!("\n{}", "=".repeat(60));
+    println!("\nEvent types found:");
+    
+    // Count event types
+    let mut event_type_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for event in &events {
+        *event_type_counts.entry(event.event_type.clone()).or_insert(0) += 1;
+    }
+
+    let mut sorted_types: Vec<_> = event_type_counts.iter().collect();
+    sorted_types.sort_by(|a, b| b.1.cmp(a.1));
+
+    for (event_type, count) in sorted_types {
+        println!("   - {}: {}", event_type, count);
+    }
+
+    Ok(())
+}
+
+fn extract_issue_key(event: &gh_report::github::ActivityEvent) -> Option<IssueKey> {
+    match event.event_type.as_str() {
+        "PullRequestEvent" => {
+            if let Some(pr_number) = event.payload
+                .get("pull_request")
+                .and_then(|pr| pr.get("number"))
+                .and_then(|n| n.as_u64())
+            {
+                Some(IssueKey {
+                    issue_number: pr_number,
+                    is_pr: true,
+                })
+            } else {
+                None
+            }
+        }
+        "IssuesEvent" | "IssueCommentEvent" => {
+            if let Some(issue_number) = event.payload
+                .get("issue")
+                .and_then(|issue| issue.get("number"))
+                .and_then(|n| n.as_u64())
+            {
+                // Check if this is actually a PR (issues API includes PRs)
+                let is_pr = event.payload
+                    .get("issue")
+                    .and_then(|issue| issue.get("pull_request"))
+                    .is_some();
+                
+                Some(IssueKey {
+                    issue_number,
+                    is_pr,
+                })
+            } else {
+                None
+            }
+        }
+        "PullRequestReviewCommentEvent" => {
+            if let Some(pr_number) = event.payload
+                .get("pull_request")
+                .and_then(|pr| pr.get("number"))
+                .and_then(|n| n.as_u64())
+            {
+                Some(IssueKey {
+                    issue_number: pr_number,
+                    is_pr: true,
+                })
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn consolidate_actions(events: &[&gh_report::github::ActivityEvent]) -> String {
+    use std::collections::HashSet;
+    
+    let mut actions = HashSet::new();
+    
+    for event in events {
+        match event.event_type.as_str() {
+            "PullRequestEvent" => {
+                if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
+                    actions.insert(format!("{} PR", action));
+                }
+            }
+            "IssuesEvent" => {
+                if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
+                    actions.insert(format!("{} issue", action));
+                }
+            }
+            "IssueCommentEvent" => {
+                actions.insert("commented".to_string());
+            }
+            "PullRequestReviewCommentEvent" => {
+                actions.insert("reviewed".to_string());
+            }
+            _ => {
+                actions.insert("activity".to_string());
+            }
+        }
+    }
+    
+    let mut action_list: Vec<String> = actions.into_iter().collect();
+    action_list.sort();
+    action_list.join(", ")
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+struct IssueKey {
+    issue_number: u64,
+    is_pr: bool,
+}
+
+fn format_activity_event(event: &gh_report::github::ActivityEvent) -> String {
+    let actor = &event.actor.login;
+
+    match event.event_type.as_str() {
+        "PushEvent" => {
+            if let Some(commits) = event.payload.get("commits").and_then(|c| c.as_array()) {
+                format!("@{} pushed {} commit(s)", actor, commits.len())
+            } else {
+                format!("@{} pushed commits", actor)
+            }
+        }
+        "PullRequestEvent" => {
+            if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
+                if let Some(pr_number) = event.payload
+                    .get("pull_request")
+                    .and_then(|pr| pr.get("number"))
+                    .and_then(|n| n.as_u64())
+                {
+                    format!("@{} {} PR #{}", actor, action, pr_number)
+                } else {
+                    format!("@{} {} pull request", actor, action)
+                }
+            } else {
+                format!("@{} pull request activity", actor)
+            }
+        }
+        "IssuesEvent" => {
+            if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
+                if let Some(issue_number) = event.payload
+                    .get("issue")
+                    .and_then(|issue| issue.get("number"))
+                    .and_then(|n| n.as_u64())
+                {
+                    format!("@{} {} issue #{}", actor, action, issue_number)
+                } else {
+                    format!("@{} {} issue", actor, action)
+                }
+            } else {
+                format!("@{} issue activity", actor)
+            }
+        }
+        "IssueCommentEvent" => {
+            if let Some(issue_number) = event.payload
+                .get("issue")
+                .and_then(|issue| issue.get("number"))
+                .and_then(|n| n.as_u64())
+            {
+                format!("@{} commented on issue #{}", actor, issue_number)
+            } else {
+                format!("@{} commented on issue", actor)
+            }
+        }
+        "PullRequestReviewEvent" => {
+            if let Some(pr_number) = event.payload
+                .get("pull_request")
+                .and_then(|pr| pr.get("number"))
+                .and_then(|n| n.as_u64())
+            {
+                format!("@{} reviewed PR #{}", actor, pr_number)
+            } else {
+                format!("@{} reviewed pull request", actor)
+            }
+        }
+        "PullRequestReviewCommentEvent" => {
+            if let Some(pr_number) = event.payload
+                .get("pull_request")
+                .and_then(|pr| pr.get("number"))
+                .and_then(|n| n.as_u64())
+            {
+                format!("@{} commented on PR #{}", actor, pr_number)
+            } else {
+                format!("@{} commented on pull request", actor)
+            }
+        }
+        "CreateEvent" => {
+            if let Some(ref_type) = event.payload.get("ref_type").and_then(|r| r.as_str()) {
+                format!("@{} created {}", actor, ref_type)
+            } else {
+                format!("@{} created resource", actor)
+            }
+        }
+        "DeleteEvent" => {
+            if let Some(ref_type) = event.payload.get("ref_type").and_then(|r| r.as_str()) {
+                format!("@{} deleted {}", actor, ref_type)
+            } else {
+                format!("@{} deleted resource", actor)
+            }
+        }
+        "ForkEvent" => format!("@{} forked repository", actor),
+        "WatchEvent" => format!("@{} starred repository", actor),
+        "ReleaseEvent" => {
+            if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
+                format!("@{} {} release", actor, action)
+            } else {
+                format!("@{} release activity", actor)
+            }
+        }
+        _ => format!("@{} {} event", actor, event.event_type),
+    }
 }
