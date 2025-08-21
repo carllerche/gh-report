@@ -17,10 +17,8 @@ impl<'a> RepositoryDiscovery<'a> {
         RepositoryDiscovery { client }
     }
 
-    /// Discover repositories with recent activity
-    pub fn discover_active_repos(&self, lookback_days: u32) -> Result<Vec<DiscoveredRepo>> {
-        let mut repos = Vec::new();
-
+    /// Discover repositories with recent activity that user has write access to
+    pub fn discover_active_repos(&self, _lookback_days: u32) -> Result<Vec<DiscoveredRepo>> {
         // Get current user
         let username = self
             .client
@@ -29,47 +27,61 @@ impl<'a> RepositoryDiscovery<'a> {
 
         info!("Discovering repositories for user: {}", username);
 
+        // Step 1: Find repositories where user has recent activity (last 30 days)
+        let recent_activity_repos = self.find_repos_with_recent_activity(&username)?;
+        info!(
+            "Found {} repositories with recent activity",
+            recent_activity_repos.len()
+        );
+
+        // Step 2: Filter to only repositories where user has write permissions
+        let mut filtered_repos = Vec::new();
+        for repo in recent_activity_repos {
+            if self.user_has_write_access(&username, &repo.full_name)? {
+                info!(
+                    "Repository {} passed write permission check",
+                    repo.full_name
+                );
+                filtered_repos.push(repo);
+            } else {
+                info!("Repository {} excluded - no write access", repo.full_name);
+            }
+        }
+
+        info!(
+            "Found {} repositories after filtering for write access",
+            filtered_repos.len()
+        );
+
+        Ok(filtered_repos)
+    }
+
+    /// Find repositories where user has had any recent activity (last 30 days)
+    fn find_repos_with_recent_activity(&self, username: &str) -> Result<Vec<DiscoveredRepo>> {
+        let mut repos = Vec::new();
+        let recent_date = days_ago_date(30); // Always use 30 days for recent activity
+
         // Search for repositories with recent activity
         // We'll use multiple search queries to find relevant repos
 
         // 1. Repositories where user is involved (broader search)
-        let involves_query = format!(
-            "involves:{} updated:>{}",
-            username,
-            days_ago_date(lookback_days)
-        );
+        let involves_query = format!("involves:{} updated:>{}", username, recent_date);
         repos.extend(self.search_repos(&involves_query)?);
 
         // 2. Repositories where user has recently created issues/PRs
-        let author_query = format!(
-            "author:{} updated:>{}",
-            username,
-            days_ago_date(lookback_days)
-        );
+        let author_query = format!("author:{} updated:>{}", username, recent_date);
         repos.extend(self.search_repos(&author_query)?);
 
         // 3. Repositories where user was mentioned
-        let mention_query = format!(
-            "mentions:{} updated:>{}",
-            username,
-            days_ago_date(lookback_days)
-        );
+        let mention_query = format!("mentions:{} updated:>{}", username, recent_date);
         repos.extend(self.search_repos(&mention_query)?);
 
         // 4. Repositories where user has been assigned
-        let assignee_query = format!(
-            "assignee:{} updated:>{}",
-            username,
-            days_ago_date(lookback_days)
-        );
+        let assignee_query = format!("assignee:{} updated:>{}", username, recent_date);
         repos.extend(self.search_repos(&assignee_query)?);
 
         // 5. Repositories where user has reviewed PRs
-        let review_query = format!(
-            "reviewed-by:{} updated:>{}",
-            username,
-            days_ago_date(lookback_days)
-        );
+        let review_query = format!("reviewed-by:{} updated:>{}", username, recent_date);
         repos.extend(self.search_repos(&review_query)?);
 
         // Deduplicate repositories
@@ -91,14 +103,44 @@ impl<'a> RepositoryDiscovery<'a> {
                 .or_insert(repo);
         }
 
-        let mut result: Vec<DiscoveredRepo> = unique_repos.into_values().collect();
+        Ok(unique_repos.into_values().collect())
+    }
 
-        // Fetch additional metrics for each repository
-        for repo in &mut result {
-            self.enrich_repo_metrics(repo, lookback_days)?;
+    /// Check if user has write access to a repository
+    fn user_has_write_access(&self, _username: &str, repo: &str) -> Result<bool> {
+        // For mock implementation, return true for testing
+        #[allow(unreachable_patterns)]
+        match self.client {
+            #[cfg(test)]
+            GitHubClient::Mock(_) => return Ok(true),
+            _ => {}
         }
 
-        Ok(result)
+        // Use gh api to check repository permissions
+        let mut cmd = Command::new("gh");
+        cmd.arg("api")
+            .arg(format!("/repos/{}", repo))
+            .arg("--jq")
+            .arg(".permissions.push // false"); // Check if user has push (write) access
+
+        debug!("Checking write access for {}", repo);
+        let output = cmd.output().context("Failed to execute gh api")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            info!("Failed to check permissions for {}: {}", repo, stderr);
+            // If we can't check, err on the side of exclusion for permissions
+            return Ok(false);
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        debug!("Permission check output for {}: {}", repo, stdout);
+
+        // Parse the permission result
+        let has_write_access = stdout.trim() == "true";
+        debug!("User has write access to {}: {}", repo, has_write_access);
+
+        Ok(has_write_access)
     }
 
     /// Search for repositories using a query
@@ -172,46 +214,6 @@ impl<'a> RepositoryDiscovery<'a> {
             info!("Returning {} unique repositories from search", repos.len());
             Ok(repos)
         }
-    }
-
-    /// Enrich repository with additional metrics
-    fn enrich_repo_metrics(&self, repo: &mut DiscoveredRepo, lookback_days: u32) -> Result<()> {
-        // Get recent issues and PRs to calculate metrics
-        let since = Timestamp::now() - (lookback_days as i64 * 24).hours();
-
-        info!("Enriching metrics for repository: {}", repo.full_name);
-        match self.client.fetch_issues(&repo.full_name, Some(since)) {
-            Ok(issues) => {
-                info!("Fetched {} issues/PRs for {}", issues.len(), repo.full_name);
-                for issue in issues {
-                    if issue.is_pull_request {
-                        repo.metrics.prs += 1;
-                    } else {
-                        repo.metrics.issues += 1;
-                    }
-                    repo.metrics.comments += issue.comments.total_count;
-                }
-            }
-            Err(e) => {
-                // Log as info instead of debug so we can see the errors
-                info!("Failed to fetch issues for {}: {}", repo.full_name, e);
-            }
-        }
-
-        // Note: Commit count would require additional API calls
-        // For now, we'll estimate based on PR activity
-        repo.metrics.commits = repo.metrics.prs * 3; // Rough estimate
-
-        info!(
-            "Metrics for {}: commits={}, prs={}, issues={}, comments={}",
-            repo.full_name,
-            repo.metrics.commits,
-            repo.metrics.prs,
-            repo.metrics.issues,
-            repo.metrics.comments
-        );
-
-        Ok(())
     }
 }
 

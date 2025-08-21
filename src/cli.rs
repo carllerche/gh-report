@@ -90,6 +90,13 @@ pub enum Commands {
         #[arg(long)]
         no_recommendations: bool,
     },
+
+    /// List repositories with recent activity (preview for init)
+    ListRepos {
+        /// Number of days to look back
+        #[arg(long, default_value = "30")]
+        lookback: u32,
+    },
 }
 
 #[cfg(test)]
@@ -204,6 +211,32 @@ mod tests {
                 assert!(no_recommendations);
             }
             _ => panic!("Expected Summarize command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_list_repos() {
+        let args = vec!["gh-report", "list-repos"];
+        let cli = Cli::parse_from(args);
+
+        match cli.command {
+            Some(Commands::ListRepos { lookback }) => {
+                assert_eq!(lookback, 30); // default value
+            }
+            _ => panic!("Expected ListRepos command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_list_repos_with_lookback() {
+        let args = vec!["gh-report", "list-repos", "--lookback", "14"];
+        let cli = Cli::parse_from(args);
+
+        match cli.command {
+            Some(Commands::ListRepos { lookback }) => {
+                assert_eq!(lookback, 14);
+            }
+            _ => panic!("Expected ListRepos command"),
         }
     }
 }

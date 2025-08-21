@@ -38,55 +38,39 @@ impl<'a> DynamicRepoManager<'a> {
 
         info!("Updating dynamic repository list");
 
-        // Discover repositories with recent activity
+        // Discover repositories with recent activity and write access
         let discovery = RepositoryDiscovery::new(self.client);
-        let lookback_days = self.config.dynamic_repos.auto_add_threshold_days;
-        let discovered = discovery.discover_active_repos(lookback_days)?;
+        let discovered = discovery.discover_active_repos(30)?; // Always use 30 days
 
         info!(
-            "Discovered {} repositories with recent activity",
+            "Discovered {} repositories with recent activity and write access",
             discovered.len()
         );
-
-        // Calculate scores for discovered repos
-        let mut scored_repos = Vec::new();
-        for repo in discovered {
-            let score = calculate_activity_score(
-                &repo.metrics,
-                &self.config.dynamic_repos.activity_weights,
-            );
-            scored_repos.push((repo, score));
-        }
-
-        // Sort by score (highest first)
-        scored_repos.sort_by(|a, b| b.1.cmp(&a.1));
 
         // Determine which repos to add
         let mut added = Vec::new();
         let mut removed = Vec::new();
         let mut updated = Vec::new();
 
-        let min_score = self.config.dynamic_repos.min_activity_score;
         let current_repos: HashSet<String> = self.state.tracked_repos.keys().cloned().collect();
 
         // Check for new repos to add
-        for (repo, score) in &scored_repos {
-            if score >= &min_score && !current_repos.contains(&repo.full_name) {
-                info!("Adding repository {} (score: {})", repo.full_name, score);
+        for repo in &discovered {
+            if !current_repos.contains(&repo.full_name) {
+                info!("Adding repository {}", repo.full_name);
                 self.state.tracked_repos.insert(
                     repo.full_name.clone(),
                     RepoState {
                         last_seen: repo.last_activity,
-                        activity_score: *score,
+                        activity_score: 0, // No longer used
                         auto_tracked: true,
                     },
                 );
                 added.push(repo.full_name.clone());
-            } else if current_repos.contains(&repo.full_name) {
+            } else {
                 // Update existing repo's activity
                 if let Some(state) = self.state.tracked_repos.get_mut(&repo.full_name) {
                     state.last_seen = repo.last_activity;
-                    state.activity_score = *score;
                     updated.push(repo.full_name.clone());
                 }
             }
@@ -104,13 +88,10 @@ impl<'a> DynamicRepoManager<'a> {
                 if repo_state.auto_tracked {
                     let inactive_duration = now - repo_state.last_seen;
 
-                    if inactive_duration.get_hours() > (remove_threshold.get_hours())
-                        || repo_state.activity_score < min_score
-                    {
+                    if inactive_duration.get_hours() > (remove_threshold.get_hours()) {
                         info!(
-                            "Removing inactive repository {} (score: {}, last seen: {})",
+                            "Removing inactive repository {} (last seen: {})",
                             repo_name,
-                            repo_state.activity_score,
                             repo_state.last_seen.strftime("%Y-%m-%d")
                         );
                         self.state.tracked_repos.remove(&repo_name);
@@ -124,67 +105,44 @@ impl<'a> DynamicRepoManager<'a> {
             added,
             removed,
             updated,
-            total_discovered: scored_repos.len(),
+            total_discovered: discovered.len(),
             total_tracked: self.state.tracked_repos.len(),
         })
     }
 
     /// Initialize repository list based on current activity
-    pub fn initialize_repositories(&mut self, lookback_days: u32) -> Result<InitResult> {
-        info!(
-            "Initializing repository list (lookback: {} days)",
-            lookback_days
-        );
+    pub fn initialize_repositories(&mut self, _lookback_days: u32) -> Result<InitResult> {
+        info!("Initializing repository list");
 
         // Clear existing repos if any
         self.state.tracked_repos.clear();
 
-        // Discover repositories
+        // Discover repositories with recent activity and write access (always 30 days)
         let discovery = RepositoryDiscovery::new(self.client);
-        let discovered = discovery.discover_active_repos(lookback_days)?;
+        let discovered = discovery.discover_active_repos(30)?;
 
-        info!("Found {} repositories with activity", discovered.len());
+        info!(
+            "Found {} repositories with activity and write access",
+            discovered.len()
+        );
 
-        // Score and filter repositories
-        let mut scored_repos = Vec::new();
+        // Add all discovered repositories to state (no scoring)
+        let mut repositories = Vec::new();
         for repo in discovered {
-            let score = calculate_activity_score(
-                &repo.metrics,
-                &self.config.dynamic_repos.activity_weights,
-            );
-            if score >= self.config.dynamic_repos.min_activity_score {
-                scored_repos.push((repo, score));
-            }
-        }
-
-        // Sort by score
-        scored_repos.sort_by(|a, b| b.1.cmp(&a.1));
-
-        // Add to state
-        let mut by_score: HashMap<u32, Vec<String>> = HashMap::new();
-        for (repo, score) in &scored_repos {
             self.state.tracked_repos.insert(
                 repo.full_name.clone(),
                 RepoState {
                     last_seen: repo.last_activity,
-                    activity_score: *score,
+                    activity_score: 0, // No longer used
                     auto_tracked: true,
                 },
             );
-
-            by_score
-                .entry(*score)
-                .or_insert_with(Vec::new)
-                .push(repo.full_name.clone());
+            repositories.push((repo.full_name, 0)); // Score is always 0 now
         }
 
         Ok(InitResult {
-            total_found: scored_repos.len(),
-            repositories: scored_repos
-                .into_iter()
-                .map(|(r, s)| (r.full_name, s))
-                .collect(),
-            by_score,
+            total_found: repositories.len(),
+            repositories,
         })
     }
 }
@@ -203,8 +161,7 @@ pub struct RepoUpdateResult {
 #[derive(Debug)]
 pub struct InitResult {
     pub total_found: usize,
-    pub repositories: Vec<(String, u32)>,
-    pub by_score: HashMap<u32, Vec<String>>,
+    pub repositories: Vec<(String, u32)>, // Score is always 0 now, kept for compatibility
 }
 
 #[cfg(test)]

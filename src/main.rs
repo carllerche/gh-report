@@ -36,6 +36,10 @@ fn main() -> Result<()> {
             info!("Summarizing issue/PR: {}", target);
             summarize_command(target, output.as_deref(), no_recommendations, &cli)?;
         }
+        Some(Commands::ListRepos { lookback }) => {
+            info!("Listing repositories with recent activity");
+            list_repos_command(lookback, &cli)?;
+        }
         None => {
             // Main report generation command
             generate_report(&cli)?;
@@ -446,6 +450,99 @@ fn estimate_costs(config: &Config, state: &State) -> Result<()> {
         config.claude.secondary_model
     );
     println!("\nEstimated cost: $0.02-0.04");
+
+    Ok(())
+}
+
+fn list_repos_command(lookback: u32, _cli: &Cli) -> Result<()> {
+    // Check GitHub CLI first
+    match gh_report::github::check_gh_version() {
+        Ok(version) => info!("Using gh version {}", version),
+        Err(e) => {
+            error!("GitHub CLI check failed: {}", e);
+            println!("❌ {}", e);
+            println!("\nPlease install GitHub CLI from: https://cli.github.com/");
+            return Err(e);
+        }
+    }
+
+    println!(
+        "Discovering repositories you have write access to with recent activity (last 30 days)...",
+    );
+
+    // Create GitHub client
+    let github_client = GitHubClient::new().context("Failed to create GitHub client")?;
+
+    // Create default config and state for discovery
+    let config = Config::default();
+    let mut state = State::default();
+
+    // Use dynamic repo manager to discover repositories
+    let mut manager = DynamicRepoManager::new(&config, &mut state, &github_client);
+    let init_result = manager
+        .initialize_repositories(lookback)
+        .context("Failed to discover repositories")?;
+
+    if init_result.repositories.is_empty() {
+        println!("\nNo repositories found matching criteria.");
+        println!("\nThis means either:");
+        println!(
+            "  - No repositories you have write access to have recent activity (last 30 days)"
+        );
+        println!("  - You have recent activity but no write permissions to those repositories");
+        println!("\nTroubleshooting:");
+        println!("  - Check your GitHub CLI authentication: gh auth status");
+        println!("  - Verify you have recent GitHub activity (commits, PRs, comments)");
+        println!("  - Ensure you have push/write access to repositories you expect to see");
+        return Ok(());
+    }
+
+    // Group repositories by organization
+    use std::collections::BTreeMap;
+    let mut grouped_repos: BTreeMap<String, Vec<(String, u32)>> = BTreeMap::new();
+
+    for (repo_name, score) in &init_result.repositories {
+        let (org, repo) = if let Some(slash_pos) = repo_name.find('/') {
+            let org = &repo_name[..slash_pos];
+            let repo = &repo_name[slash_pos + 1..];
+            (org.to_string(), repo.to_string())
+        } else {
+            // Handle edge case of no organization
+            ("(no org)".to_string(), repo_name.clone())
+        };
+
+        grouped_repos
+            .entry(org)
+            .or_insert_with(Vec::new)
+            .push((repo, *score));
+    }
+
+    // Sort repositories within each org by score (highest first)
+    for repos in grouped_repos.values_mut() {
+        repos.sort_by(|a, b| b.1.cmp(&a.1));
+    }
+
+    println!(
+        "\nFound {} repositories across {} organizations:",
+        init_result.repositories.len(),
+        grouped_repos.len()
+    );
+    println!("\n{}", "=".repeat(60));
+
+    for (org, repos) in &grouped_repos {
+        println!("\n**{}** ({} repositories)", org, repos.len());
+
+        for (repo, _score) in repos {
+            println!("   {}", repo);
+        }
+    }
+
+    println!("\n{}", "=".repeat(60));
+    println!("\nTo initialize with these repositories:");
+    println!("   gh-report init --lookback {}", lookback);
+    println!("\nSelection criteria:");
+    println!("   - Must have write/push access to the repository");
+    println!("   - Must have recent activity (last 30 days): commits, PRs, comments, etc.");
 
     Ok(())
 }
