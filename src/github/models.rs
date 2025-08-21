@@ -181,6 +181,18 @@ pub struct RestIssue {
     pub html_url: String,
     pub comments: u32,
     pub pull_request: Option<serde_json::Value>,
+    // PR-specific fields for detecting merge status
+    #[serde(default)]
+    pub merged: Option<bool>,
+    #[serde(default)]
+    pub merged_at: Option<Timestamp>,
+    // Additional fields that might be present
+    #[serde(default)]
+    pub sub_issues_summary: Option<serde_json::Value>,
+    #[serde(default)]
+    pub issue_dependencies_summary: Option<serde_json::Value>,
+    #[serde(default)]
+    pub state_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -198,7 +210,14 @@ impl From<RestIssue> for Issue {
             body: rest.body,
             state: match rest.state.as_str() {
                 "open" => IssueState::Open,
-                "closed" => IssueState::Closed,
+                "closed" => {
+                    // For PRs, check if it was merged
+                    if rest.pull_request.is_some() && rest.merged.unwrap_or(false) {
+                        IssueState::Merged
+                    } else {
+                        IssueState::Closed
+                    }
+                }
                 _ => IssueState::Closed,
             },
             author: Author {

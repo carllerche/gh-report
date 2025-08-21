@@ -203,12 +203,12 @@ fn report_command(
     let generator = ReportGenerator::new(github_client, &config, &state);
     let report = if dry_run {
         generator
-            .generate_from_activity_with_progress(lookback_days, true)
-            .context("Failed to generate activity-based report (dry run)")?
+            .generate_with_progress(lookback_days, true)
+            .context("Failed to generate repository-based report (dry run)")?
     } else {
         generator
-            .generate_from_activity(lookback_days)
-            .context("Failed to generate activity-based report")?
+            .generate(lookback_days)
+            .context("Failed to generate repository-based report")?
     };
 
     // Save the report

@@ -409,20 +409,94 @@ impl<'a> ReportGenerator<'a> {
     }
 
     fn discover_active_repositories(&self, since: &Timestamp) -> Result<Vec<String>> {
-        // Use GitHub search to find repositories where the user has been active
-        // This is a simplified approach - in a more complete implementation,
-        // we would use the GitHub Events API or search for specific activity
         info!(
             "Discovering repositories based on user activity since {}",
             since.strftime("%Y-%m-%d %H:%M")
         );
 
-        // For now, return an empty list to allow compilation
-        // In a full implementation, this would:
-        // 1. Search for repositories where user has commits, issues, PRs, or comments
-        // 2. Score them by activity level
-        // 3. Return the most active ones
-        Ok(Vec::new())
+        let mut discovered_repos = std::collections::HashSet::new();
+        
+        // Get the current user
+        let username = self.github_client.get_current_user()
+            .context("Failed to get current user")?;
+        
+        // Search for recent activity in different ways
+        let searches = vec![
+            format!("involves:{} updated:>{}", username, since.strftime("%Y-%m-%d")),
+            format!("author:{} updated:>{}", username, since.strftime("%Y-%m-%d")),
+            format!("assignee:{} updated:>{}", username, since.strftime("%Y-%m-%d")),
+            format!("mentions:{} updated:>{}", username, since.strftime("%Y-%m-%d")),
+        ];
+
+        for query in searches {
+            match self.search_repositories(&query) {
+                Ok(repos) => {
+                    for repo in repos {
+                        discovered_repos.insert(repo);
+                    }
+                }
+                Err(e) => {
+                    warn!("Search failed for query '{}': {}", query, e);
+                    continue;
+                }
+            }
+        }
+
+        let mut repos: Vec<String> = discovered_repos.into_iter().collect();
+        repos.sort();
+        
+        info!("Discovered {} repositories with recent activity", repos.len());
+        for repo in &repos {
+            info!("  {}", repo);
+        }
+        
+        Ok(repos)
+    }
+    
+    fn search_repositories(&self, query: &str) -> Result<Vec<String>> {
+        // Use GitHub search to find repositories
+        let encoded_query = query
+            .replace(" ", "%20")
+            .replace(":", "%3A")
+            .replace(">", "%3E");
+        let endpoint = format!("search/issues?q={}&per_page=100", encoded_query);
+        
+        // Execute the search using gh CLI
+        let output = std::process::Command::new("gh")
+            .args(&["api", &endpoint])
+            .output()
+            .context("Failed to execute gh command for repository search")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow::anyhow!("GitHub search failed: {}", stderr));
+        }
+
+        let stdout = String::from_utf8(output.stdout)
+            .context("Invalid UTF-8 in search output")?;
+
+        #[derive(serde::Deserialize)]
+        struct SearchResult {
+            items: Vec<SearchItem>,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct SearchItem {
+            repository_url: String,
+        }
+
+        let result: SearchResult = serde_json::from_str(&stdout)
+            .context("Failed to parse search results")?;
+
+        let mut repos = std::collections::HashSet::new();
+        for item in result.items {
+            // Extract repo name from repository_url: https://api.github.com/repos/owner/name
+            if let Some(repo_name) = item.repository_url.strip_prefix("https://api.github.com/repos/") {
+                repos.insert(repo_name.to_string());
+            }
+        }
+
+        Ok(repos.into_iter().collect())
     }
 
     fn fetch_user_mentions(&self, _username: &str, since: Timestamp) -> Result<Vec<Issue>> {
