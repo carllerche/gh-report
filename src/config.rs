@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -9,27 +8,6 @@ pub struct Config {
     pub claude: ClaudeConfig,
     #[serde(default)]
     pub report: ReportConfig,
-    /// DEPRECATED: Labels are no longer used with activity-based discovery
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[deprecated(note = "Labels are no longer used with activity-based discovery")]
-    pub labels: Vec<Label>,
-
-    /// DEPRECATED: Repository configuration is no longer needed with activity-based discovery
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[deprecated(
-        note = "Repository configuration is no longer needed with activity-based discovery"
-    )]
-    pub repos: Vec<RepoConfig>,
-
-    /// DEPRECATED: Dynamic repositories are replaced by activity-based discovery
-    #[serde(default, skip_serializing_if = "is_dynamic_repos_default")]
-    #[deprecated(note = "Dynamic repositories are replaced by activity-based discovery")]
-    pub dynamic_repos: DynamicReposConfig,
-
-    /// DEPRECATED: Watch rules are no longer used with activity-based discovery
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    #[deprecated(note = "Watch rules are no longer used with activity-based discovery")]
-    pub watch_rules: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub cache: CacheConfig,
 }
@@ -73,49 +51,6 @@ pub struct ClaudeConfig {
 pub struct ReportConfig {
     #[serde(default = "default_template")]
     pub template: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Label {
-    pub name: String,
-    pub description: String,
-    pub watch_rules: Vec<String>,
-    pub importance: Importance,
-    pub context: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct RepoConfig {
-    pub name: String,
-    pub labels: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub watch_rules: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub importance_override: Option<Importance>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_context: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct DynamicReposConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    #[serde(default = "default_auto_add_threshold")]
-    pub auto_add_threshold_days: u32,
-    #[serde(default = "default_auto_remove_threshold")]
-    pub auto_remove_threshold_days: u32,
-    #[serde(default = "default_activity_weights")]
-    pub activity_weights: ActivityWeights,
-    #[serde(default = "default_min_score")]
-    pub min_activity_score: u32,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ActivityWeights {
-    pub commits: u32,
-    pub prs: u32,
-    pub issues: u32,
-    pub comments: u32,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -198,16 +133,6 @@ impl Config {
             report: ReportConfig {
                 template: default_template(),
             },
-            labels: vec![],
-            repos: vec![],
-            dynamic_repos: DynamicReposConfig {
-                enabled: true,
-                auto_add_threshold_days: default_auto_add_threshold(),
-                auto_remove_threshold_days: default_auto_remove_threshold(),
-                activity_weights: default_activity_weights(),
-                min_activity_score: default_min_score(),
-            },
-            watch_rules: default_watch_rules(),
             cache: CacheConfig {
                 enabled: default_cache_enabled(),
                 ttl_hours: default_cache_ttl(),
@@ -296,38 +221,6 @@ fn default_template() -> String {
         .to_string()
 }
 
-fn default_true() -> bool {
-    true
-}
-
-fn is_dynamic_repos_default(config: &DynamicReposConfig) -> bool {
-    config.enabled == default_true()
-        && config.auto_add_threshold_days == default_auto_add_threshold()
-        && config.auto_remove_threshold_days == default_auto_remove_threshold()
-        && config.min_activity_score == default_min_score()
-}
-
-fn default_auto_add_threshold() -> u32 {
-    7
-}
-
-fn default_auto_remove_threshold() -> u32 {
-    30
-}
-
-fn default_activity_weights() -> ActivityWeights {
-    ActivityWeights {
-        commits: 4,
-        prs: 3,
-        issues: 2,
-        comments: 1,
-    }
-}
-
-fn default_min_score() -> u32 {
-    5
-}
-
 fn default_cache_enabled() -> bool {
     true
 }
@@ -340,74 +233,11 @@ fn default_claude_backend() -> ClaudeBackend {
     ClaudeBackend::Auto
 }
 
-fn default_watch_rules() -> HashMap<String, Vec<String>> {
-    let mut rules = HashMap::new();
-    rules.insert(
-        "api_changes".to_string(),
-        vec![
-            "public API".to_string(),
-            "breaking change".to_string(),
-            "deprecation".to_string(),
-            "new feature".to_string(),
-        ],
-    );
-    rules.insert(
-        "breaking_changes".to_string(),
-        vec![
-            "BREAKING".to_string(),
-            "migration".to_string(),
-            "major version".to_string(),
-        ],
-    );
-    rules.insert(
-        "security_issues".to_string(),
-        vec![
-            "security".to_string(),
-            "vulnerability".to_string(),
-            "CVE".to_string(),
-            "exploit".to_string(),
-        ],
-    );
-    rules.insert(
-        "performance".to_string(),
-        vec![
-            "performance".to_string(),
-            "regression".to_string(),
-            "benchmark".to_string(),
-            "slow".to_string(),
-        ],
-    );
-    rules.insert("mentions".to_string(), vec!["@{username}".to_string()]);
-    rules.insert(
-        "review_requests".to_string(),
-        vec![
-            "review requested".to_string(),
-            "PTAL".to_string(),
-            "feedback needed".to_string(),
-        ],
-    );
-    rules.insert("all_activity".to_string(), vec![]);
-    rules
-}
-
 // Default implementation for ReportConfig
 impl Default for ReportConfig {
     fn default() -> Self {
         ReportConfig {
             template: default_template(),
-        }
-    }
-}
-
-// Default implementation for DynamicReposConfig
-impl Default for DynamicReposConfig {
-    fn default() -> Self {
-        DynamicReposConfig {
-            enabled: true,
-            auto_add_threshold_days: default_auto_add_threshold(),
-            auto_remove_threshold_days: default_auto_remove_threshold(),
-            activity_weights: default_activity_weights(),
-            min_activity_score: default_min_score(),
         }
     }
 }
@@ -442,9 +272,7 @@ mod tests {
         assert!(config.claude.cache_responses);
         assert_eq!(config.claude.cache_ttl_hours, 24);
 
-        assert!(config.dynamic_repos.enabled);
-        assert_eq!(config.dynamic_repos.auto_add_threshold_days, 7);
-        assert_eq!(config.dynamic_repos.auto_remove_threshold_days, 30);
+        // Dynamic repos have been removed
 
         assert!(config.cache.enabled);
         assert_eq!(config.cache.ttl_hours, 24);
@@ -493,15 +321,5 @@ mod tests {
         let mut importances = vec![Critical, Low, High, Medium];
         importances.sort();
         assert_eq!(importances, vec![Low, Medium, High, Critical]);
-    }
-
-    #[test]
-    fn test_activity_weights() {
-        let weights = default_activity_weights();
-
-        assert_eq!(weights.commits, 4);
-        assert_eq!(weights.prs, 3);
-        assert_eq!(weights.issues, 2);
-        assert_eq!(weights.comments, 1);
     }
 }

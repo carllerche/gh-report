@@ -88,7 +88,6 @@ impl Default for CacheKeyBuilder {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,7 +127,6 @@ mod tests {
 
         assert_eq!(key, "base_present");
     }
-
 
     #[test]
     fn test_is_safe_key_component() {

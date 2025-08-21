@@ -47,7 +47,6 @@ pub fn decompress_data(data: &[u8]) -> Result<Vec<u8>> {
     Ok(decompressed)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,5 +88,4 @@ mod tests {
         let decompressed = decompress_data(&compressed).unwrap();
         assert_eq!(decompressed, original);
     }
-
 }

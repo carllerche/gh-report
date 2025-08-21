@@ -2,7 +2,6 @@ pub mod cache;
 pub mod claude;
 pub mod cli;
 pub mod config;
-pub mod dynamic;
 pub mod error;
 pub mod github;
 pub mod intelligence;

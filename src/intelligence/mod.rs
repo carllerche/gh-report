@@ -1,41 +1,30 @@
 use crate::config::{Config, Importance};
 use crate::github::{Issue, RepoActivity};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 mod context;
 mod scoring;
-mod watch_rules;
-
 pub use context::{build_context_prompt, extract_action_items};
 pub use scoring::{calculate_priority_score, PriorityScore};
-pub use watch_rules::{MatchedRule, WatchRuleEngine};
 
 /// Intelligent filtering and analysis of GitHub activities
 pub struct IntelligentAnalyzer<'a> {
-    config: &'a Config,
-    engine: WatchRuleEngine,
+    _config: &'a Config, // Keep for future use
 }
 
 impl<'a> IntelligentAnalyzer<'a> {
     pub fn new(config: &'a Config) -> Self {
-        let engine = WatchRuleEngine::new(&config.watch_rules);
-        IntelligentAnalyzer { config, engine }
+        IntelligentAnalyzer { _config: config }
     }
 
     /// Analyze activities and return prioritized, filtered results
     pub fn analyze(&self, activities: &BTreeMap<String, RepoActivity>) -> AnalysisResult {
         let mut prioritized_issues = Vec::new();
-        let mut matched_rules: HashMap<String, Vec<MatchedRule>> = HashMap::new();
-        let mut repo_importances: HashMap<String, Importance> = HashMap::new();
 
         // Process each repository's activities
         for (repo_name, activity) in activities {
-            // Determine repository importance
-            let importance = self.get_repo_importance(repo_name);
-            repo_importances.insert(repo_name.clone(), importance);
-
-            // Get applicable labels and context for this repo
-            let (labels, context) = self.get_repo_labels_and_context(repo_name);
+            // Determine repository importance (default to Medium for now)
+            let importance = Importance::Medium;
 
             // Process all issues and PRs
             let mut all_items = Vec::new();
@@ -45,86 +34,32 @@ impl<'a> IntelligentAnalyzer<'a> {
             all_items.extend(activity.updated_prs.iter());
 
             for issue in all_items {
-                // Check watch rules
-                let matches = self.engine.check_issue(issue, &labels);
+                // Calculate priority score based on basic metrics
+                let score = calculate_priority_score(issue, importance, issue.is_pull_request);
 
-                if !matches.is_empty() {
-                    // Calculate priority score
-                    let score = calculate_priority_score(
-                        issue,
-                        importance,
-                        &matches,
-                        issue.is_pull_request,
-                    );
-
-                    prioritized_issues.push(PrioritizedIssue {
-                        issue: issue.clone(),
-                        repo: repo_name.clone(),
-                        score,
-                        matched_rules: matches.clone(),
-                        importance,
-                        context: context.clone(),
-                    });
-
-                    // Track matched rules
-                    matched_rules
-                        .entry(repo_name.clone())
-                        .or_insert_with(Vec::new)
-                        .extend(matches);
-                }
+                prioritized_issues.push(PrioritizedIssue {
+                    issue: issue.clone(),
+                    repo: repo_name.clone(),
+                    score,
+                    importance,
+                });
             }
         }
 
         // Sort by priority score (highest first)
         prioritized_issues.sort_by(|a, b| b.score.total.cmp(&a.score.total));
 
-        // Build context for AI summarization
-        let context_prompt = build_context_prompt(&self.config.labels, &repo_importances);
+        // Build simple context for AI summarization
+        let context_prompt = build_context_prompt();
 
         // Extract potential action items
         let action_items = extract_action_items(&prioritized_issues);
 
         AnalysisResult {
             prioritized_issues,
-            matched_rules,
             context_prompt,
             action_items,
-            repo_importances,
         }
-    }
-
-    /// Get the importance level for a repository
-    fn get_repo_importance(&self, repo_name: &str) -> Importance {
-        // Check if repo has an importance override
-        for repo_config in &self.config.repos {
-            if repo_config.name == repo_name {
-                if let Some(importance) = repo_config.importance_override {
-                    return importance;
-                }
-            }
-        }
-
-        // Default to medium
-        Importance::Medium
-    }
-
-    /// Get labels and context for a repository
-    fn get_repo_labels_and_context(&self, repo_name: &str) -> (Vec<String>, Option<String>) {
-        for repo_config in &self.config.repos {
-            if repo_config.name == repo_name {
-                let mut labels = repo_config.labels.clone();
-
-                // Add any watch rules specific to this repo
-                if let Some(rules) = &repo_config.watch_rules {
-                    labels.extend(rules.clone());
-                }
-
-                return (labels, repo_config.custom_context.clone());
-            }
-        }
-
-        // No specific config for this repo
-        (vec![], None)
     }
 }
 
@@ -132,10 +67,8 @@ impl<'a> IntelligentAnalyzer<'a> {
 #[derive(Debug)]
 pub struct AnalysisResult {
     pub prioritized_issues: Vec<PrioritizedIssue>,
-    pub matched_rules: HashMap<String, Vec<MatchedRule>>,
     pub context_prompt: String,
     pub action_items: Vec<ActionItem>,
-    pub repo_importances: HashMap<String, Importance>,
 }
 
 /// An issue with priority scoring and context
@@ -144,9 +77,7 @@ pub struct PrioritizedIssue {
     pub issue: Issue,
     pub repo: String,
     pub score: PriorityScore,
-    pub matched_rules: Vec<MatchedRule>,
     pub importance: Importance,
-    pub context: Option<String>,
 }
 
 /// A suggested action item

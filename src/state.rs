@@ -1,26 +1,12 @@
 use anyhow::{Context, Result};
 use jiff::{Timestamp, ToSpan};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::Path;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct State {
     pub last_run: Option<Timestamp>,
     pub last_report_file: Option<String>,
-    /// DEPRECATED: Repository tracking is no longer used with activity-based discovery
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    #[deprecated(note = "Repository tracking is no longer used with activity-based discovery")]
-    pub tracked_repos: HashMap<String, RepoState>,
-}
-
-/// DEPRECATED: RepoState is no longer used with activity-based discovery
-#[derive(Debug, Deserialize, Serialize)]
-#[deprecated(note = "RepoState is no longer used with activity-based discovery")]
-pub struct RepoState {
-    pub last_seen: Timestamp,
-    pub activity_score: u32,
-    pub auto_tracked: bool,
 }
 
 impl State {
@@ -85,65 +71,6 @@ impl State {
             }
         }
     }
-
-    /// Add a repository to track
-    pub fn add_repository(&mut self, repo_name: &str) {
-        self.tracked_repos.insert(
-            repo_name.to_string(),
-            RepoState {
-                last_seen: Timestamp::now(),
-                activity_score: 0,
-                auto_tracked: false,
-            },
-        );
-    }
-
-    /// Check if a repository should be auto-removed due to inactivity
-    pub fn should_remove_repo(&self, repo_name: &str, threshold_days: u32) -> bool {
-        if let Some(repo_state) = self.tracked_repos.get(repo_name) {
-            if !repo_state.auto_tracked {
-                return false; // Never auto-remove manually configured repos
-            }
-
-            let hours = (threshold_days as i64) * 24;
-            let threshold = Timestamp::now()
-                .saturating_sub(hours.hours())
-                .expect("valid timestamp");
-            repo_state.last_seen < threshold
-        } else {
-            false
-        }
-    }
-
-    /// Update or add a repository's state
-    pub fn update_repo(&mut self, name: String, score: u32, auto_tracked: bool) {
-        let repo_state = RepoState {
-            last_seen: Timestamp::now(),
-            activity_score: score,
-            auto_tracked,
-        };
-        self.tracked_repos.insert(name, repo_state);
-    }
-
-    /// Remove inactive repositories
-    pub fn cleanup_inactive_repos(&mut self, threshold_days: u32) -> Vec<String> {
-        let mut removed = Vec::new();
-        let hours = (threshold_days as i64) * 24;
-        let threshold = Timestamp::now()
-            .saturating_sub(hours.hours())
-            .expect("valid timestamp");
-
-        self.tracked_repos.retain(|name, state| {
-            if state.auto_tracked && state.last_seen < threshold {
-                removed.push(name.clone());
-                false
-            } else {
-                true
-            }
-        });
-
-        removed
-    }
 }
 
 impl Default for State {
@@ -151,7 +78,6 @@ impl Default for State {
         State {
             last_run: None,
             last_report_file: None,
-            tracked_repos: HashMap::new(),
         }
     }
 }
@@ -168,7 +94,6 @@ mod tests {
 
         let mut state = State::default();
         state.update_last_run();
-        state.update_repo("test/repo".to_string(), 42, true);
 
         // Save state
         state.save(&state_path).unwrap();
@@ -176,8 +101,6 @@ mod tests {
         // Load state
         let loaded = State::load(&state_path).unwrap();
         assert!(loaded.last_run.is_some());
-        assert_eq!(loaded.tracked_repos.len(), 1);
-        assert_eq!(loaded.tracked_repos["test/repo"].activity_score, 42);
     }
 
     #[test]
@@ -187,52 +110,5 @@ mod tests {
 
         let state = State::load(&state_path).unwrap();
         assert!(state.last_run.is_none());
-        assert!(state.tracked_repos.is_empty());
-    }
-
-    #[test]
-    fn test_cleanup_inactive_repos() {
-        let mut state = State::default();
-
-        // Add repos with different last_seen times
-        let now = Timestamp::now();
-        state.tracked_repos.insert(
-            "old/repo".to_string(),
-            RepoState {
-                last_seen: now
-                    .saturating_sub((40 * 24).hours())
-                    .expect("valid timestamp"),
-                activity_score: 10,
-                auto_tracked: true,
-            },
-        );
-        state.tracked_repos.insert(
-            "recent/repo".to_string(),
-            RepoState {
-                last_seen: now
-                    .saturating_sub((5 * 24).hours())
-                    .expect("valid timestamp"),
-                activity_score: 20,
-                auto_tracked: true,
-            },
-        );
-        state.tracked_repos.insert(
-            "manual/repo".to_string(),
-            RepoState {
-                last_seen: now
-                    .saturating_sub((60 * 24).hours())
-                    .expect("valid timestamp"),
-                activity_score: 5,
-                auto_tracked: false, // Manual repos are never removed
-            },
-        );
-
-        let removed = state.cleanup_inactive_repos(30);
-
-        assert_eq!(removed.len(), 1);
-        assert_eq!(removed[0], "old/repo");
-        assert_eq!(state.tracked_repos.len(), 2);
-        assert!(state.tracked_repos.contains_key("recent/repo"));
-        assert!(state.tracked_repos.contains_key("manual/repo"));
     }
 }

@@ -42,10 +42,8 @@ impl<'a> ReportTemplate<'a> {
             ai_summary,
             &AnalysisResult {
                 prioritized_issues: vec![],
-                matched_rules: std::collections::HashMap::new(),
                 context_prompt: String::new(),
                 action_items: vec![],
-                repo_importances: std::collections::HashMap::new(),
             },
         )
     }

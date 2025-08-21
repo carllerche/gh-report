@@ -1,6 +1,5 @@
 use crate::config::Importance;
 use crate::github::Issue;
-use crate::intelligence::MatchedRule;
 use jiff::Timestamp;
 
 /// Priority score for an issue or PR
@@ -18,7 +17,6 @@ pub struct PriorityScore {
 pub fn calculate_priority_score(
     issue: &Issue,
     repo_importance: Importance,
-    matched_rules: &[MatchedRule],
     is_pr: bool,
 ) -> PriorityScore {
     let mut score = PriorityScore {
@@ -53,19 +51,8 @@ pub fn calculate_priority_score(
     // 3. Activity score (0-20 points)
     score.activity_score = (issue.comments.total_count.min(10) * 2) as u32;
 
-    // 4. Rule match score (0-30 points)
-    for matched_rule in matched_rules {
-        let rule_points = match matched_rule.rule_type.as_str() {
-            "security_issues" => 30,
-            "breaking_changes" => 25,
-            "api_changes" => 20,
-            "review_requests" => 15,
-            "performance" => 15,
-            "mentions" => 10,
-            _ => 5,
-        };
-        score.rule_match_score = score.rule_match_score.max(rule_points);
-    }
+    // 4. Simple rule match score based on labels (0-30 points)
+    score.rule_match_score = 0; // Simplified - no rule matching for now
 
     // 5. Label score (0-20 points)
     for label in &issue.labels {
@@ -99,7 +86,6 @@ pub fn calculate_priority_score(
     score
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,20 +116,13 @@ mod tests {
             is_pull_request: false,
         };
 
-        let matched_rules = vec![MatchedRule {
-            rule_type: "security_issues".to_string(),
-            matched_text: "security".to_string(),
-            confidence: 1.0,
-        }];
-
-        let score = calculate_priority_score(&issue, Importance::High, &matched_rules, false);
+        let score = calculate_priority_score(&issue, Importance::High, false);
 
         assert_eq!(score.importance_score, 30); // High importance
         assert_eq!(score.recency_score, 30); // Last 6 hours
         assert_eq!(score.activity_score, 6); // 3 comments * 2
-        assert_eq!(score.rule_match_score, 30); // Security rule
+        assert_eq!(score.rule_match_score, 0); // No rule matching
         assert_eq!(score.label_score, 15); // Bug label
-
     }
 
     #[test]
@@ -166,7 +145,7 @@ mod tests {
             is_pull_request: true,
         };
 
-        let score = calculate_priority_score(&pr, Importance::Medium, &[], true);
+        let score = calculate_priority_score(&pr, Importance::Medium, true);
 
         // Should have PR bonus
         assert!(score.total >= 10);

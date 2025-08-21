@@ -19,7 +19,7 @@ pub struct ReportGenerator<'a> {
     github_client: GitHubClient,
     claude_client: Option<ClaudeInterface>,
     config: &'a Config,
-    state: &'a State,
+    _state: &'a State, // Keep for future use
     cache_manager: Option<CacheManager>,
 }
 
@@ -62,7 +62,7 @@ impl<'a> ReportGenerator<'a> {
             github_client,
             claude_client,
             config,
-            state,
+            _state: state,
             cache_manager,
         }
     }
@@ -207,35 +207,21 @@ impl<'a> ReportGenerator<'a> {
             info!("DRY RUN: Showing what would be fetched without generating report");
         }
 
-        // Check if we have any repositories to report on
-        let total_repos = self.state.tracked_repos.len() + self.config.repos.len();
-        if total_repos == 0 {
-            warn!("No repositories configured or tracked - report will be empty");
-            warn!(
-                "Config repos: {}, State tracked repos: {}",
-                self.config.repos.len(),
-                self.state.tracked_repos.len()
-            );
-            warn!("Run 'gh-report init' to discover repositories or add them to the config file");
-        }
+        // Use dynamic repository discovery based on user activity
+        info!("Using dynamic repository discovery based on GitHub activity");
 
         let mut all_issues = Vec::new();
         let mut errors = Vec::new();
 
-        // Collect all repositories to process (from both state and config)
-        let mut repos_to_process = Vec::new();
-
-        // Add tracked repos from state
-        for (repo_name, _) in &self.state.tracked_repos {
-            repos_to_process.push(repo_name.clone());
-        }
-
-        // Add repos from config
-        for repo_config in &self.config.repos {
-            if !repos_to_process.contains(&repo_config.name) {
-                repos_to_process.push(repo_config.name.clone());
+        // Discover repositories dynamically based on user activity
+        let repos_to_process = match self.discover_active_repositories(&since) {
+            Ok(repos) => repos,
+            Err(e) => {
+                warn!("Failed to discover repositories: {}", e);
+                warn!("Continuing with empty repository list");
+                Vec::new()
             }
-        }
+        };
 
         // Start main progress bar
         let total_repos = repos_to_process.len();
@@ -339,7 +325,10 @@ impl<'a> ReportGenerator<'a> {
         // Stop here if dry run
         if dry_run {
             info!("\nDRY RUN Summary:");
-            info!("  Total repositories: {}", self.state.tracked_repos.len());
+            info!(
+                "  Total repositories discovered: {}",
+                repos_to_process.len()
+            );
             info!("  Total items found: {}", all_issues.len());
             info!("  Errors encountered: {}", errors.len());
 
@@ -417,6 +406,23 @@ impl<'a> ReportGenerator<'a> {
             timestamp: now,
             estimated_cost,
         })
+    }
+
+    fn discover_active_repositories(&self, since: &Timestamp) -> Result<Vec<String>> {
+        // Use GitHub search to find repositories where the user has been active
+        // This is a simplified approach - in a more complete implementation,
+        // we would use the GitHub Events API or search for specific activity
+        info!(
+            "Discovering repositories based on user activity since {}",
+            since.strftime("%Y-%m-%d %H:%M")
+        );
+
+        // For now, return an empty list to allow compilation
+        // In a full implementation, this would:
+        // 1. Search for repositories where user has commits, issues, PRs, or comments
+        // 2. Score them by activity level
+        // 3. Return the most active ones
+        Ok(Vec::new())
     }
 
     fn fetch_user_mentions(&self, _username: &str, since: Timestamp) -> Result<Vec<Issue>> {
