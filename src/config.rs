@@ -9,13 +9,26 @@ pub struct Config {
     pub claude: ClaudeConfig,
     #[serde(default)]
     pub report: ReportConfig,
-    #[serde(default)]
+    /// DEPRECATED: Labels are no longer used with activity-based discovery
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[deprecated(note = "Labels are no longer used with activity-based discovery")]
     pub labels: Vec<Label>,
-    #[serde(default)]
+
+    /// DEPRECATED: Repository configuration is no longer needed with activity-based discovery
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[deprecated(
+        note = "Repository configuration is no longer needed with activity-based discovery"
+    )]
     pub repos: Vec<RepoConfig>,
-    #[serde(default)]
+
+    /// DEPRECATED: Dynamic repositories are replaced by activity-based discovery
+    #[serde(default, skip_serializing_if = "is_dynamic_repos_default")]
+    #[deprecated(note = "Dynamic repositories are replaced by activity-based discovery")]
     pub dynamic_repos: DynamicReposConfig,
-    #[serde(default)]
+
+    /// DEPRECATED: Watch rules are no longer used with activity-based discovery
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[deprecated(note = "Watch rules are no longer used with activity-based discovery")]
     pub watch_rules: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub cache: CacheConfig,
@@ -285,6 +298,13 @@ fn default_template() -> String {
 
 fn default_true() -> bool {
     true
+}
+
+fn is_dynamic_repos_default(config: &DynamicReposConfig) -> bool {
+    config.enabled == default_true()
+        && config.auto_add_threshold_days == default_auto_add_threshold()
+        && config.auto_remove_threshold_days == default_auto_remove_threshold()
+        && config.min_activity_score == default_min_score()
 }
 
 fn default_auto_add_threshold() -> u32 {

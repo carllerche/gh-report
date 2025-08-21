@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use gh_report::{
     cli::{Cli, Commands},
-    dynamic::DynamicRepoManager,
     github::GitHubClient,
     report::ReportGenerator,
     summarize::IssueSummarizer,
@@ -20,9 +19,28 @@ fn main() -> Result<()> {
 
     // Run the appropriate command
     match cli.command {
-        Some(Commands::Init { lookback, output }) => {
+        Some(Commands::Report {
+            ref since,
+            ref output,
+            dry_run,
+            estimate_cost,
+            no_cache,
+            clear_cache,
+        }) => {
+            info!("Generating activity report");
+            report_command(
+                since,
+                output,
+                dry_run,
+                estimate_cost,
+                no_cache,
+                clear_cache,
+                &cli,
+            )?;
+        }
+        Some(Commands::Init { ref since, output }) => {
             info!("Initializing configuration based on GitHub activity");
-            init_command(lookback, output)?;
+            init_command(since, output)?;
         }
         Some(Commands::RebuildState) => {
             info!("Rebuilding state from existing reports");
@@ -36,17 +54,31 @@ fn main() -> Result<()> {
             info!("Summarizing issue/PR: {}", target);
             summarize_command(target, output.as_deref(), no_recommendations, &cli)?;
         }
-        Some(Commands::ListRepos { lookback }) => {
+        Some(Commands::ListRepos {
+            ref since,
+            ref output,
+        }) => {
             info!("Listing repositories with recent activity");
-            list_repos_command(lookback, &cli)?;
+            list_repos_command(since, output, &cli)?;
         }
-        Some(Commands::Activity { days, ref include_types, ref exclude_types }) => {
+        Some(Commands::Activity {
+            ref since,
+            ref include_types,
+            ref exclude_types,
+            ref output,
+        }) => {
             info!("Showing GitHub activity feed");
-            activity_command(days, include_types.as_ref(), exclude_types.as_ref(), &cli)?;
+            activity_command(
+                since,
+                include_types.as_ref(),
+                exclude_types.as_ref(),
+                output,
+                &cli,
+            )?;
         }
         None => {
-            // Main report generation command
-            generate_report(&cli)?;
+            // Show help when no command is provided
+            println!("Use --help to see available commands");
         }
     }
 
@@ -69,7 +101,15 @@ fn setup_logging(verbosity: u8) -> Result<()> {
     Ok(())
 }
 
-fn generate_report(cli: &Cli) -> Result<()> {
+fn report_command(
+    since: &str,
+    output: &Option<PathBuf>,
+    dry_run: bool,
+    estimate_cost: bool,
+    no_cache: bool,
+    clear_cache: bool,
+    cli: &Cli,
+) -> Result<()> {
     // Check GitHub CLI first
     info!("Checking GitHub CLI");
     match gh_report::github::check_gh_version() {
@@ -85,34 +125,16 @@ fn generate_report(cli: &Cli) -> Result<()> {
     info!("Loading configuration");
     let mut config = Config::load(cli.config.as_deref()).context("Failed to load configuration")?;
 
-    // Override Claude backend if specified
-    if let Some(backend_str) = &cli.claude_backend {
-        use gh_report::config::ClaudeBackend;
-        let backend = match backend_str.to_lowercase().as_str() {
-            "api" => ClaudeBackend::Api,
-            "cli" => ClaudeBackend::Cli,
-            "auto" => ClaudeBackend::Auto,
-            _ => {
-                error!("Invalid Claude backend: {}", backend_str);
-                println!(
-                    "❌ Invalid Claude backend: '{}'. Valid options: api, cli, auto",
-                    backend_str
-                );
-                std::process::exit(1);
-            }
-        };
-        info!("Using Claude backend override: {:?}", backend);
-        config.claude.backend = backend;
-    }
+    // Override report directory if custom output is specified
+    if let Some(output_path) = output {
+        if let Some(parent) = output_path.parent() {
+            info!("Using custom output directory: {:?}", parent);
+            config.settings.report_dir = parent.to_path_buf();
 
-    // Override report directory if specified
-    if let Some(report_dir) = &cli.report_dir {
-        info!("Using custom report directory: {:?}", report_dir);
-        config.settings.report_dir = report_dir.clone();
-
-        // Create the report directory if it doesn't exist
-        std::fs::create_dir_all(report_dir)
-            .with_context(|| format!("Failed to create report directory: {:?}", report_dir))?;
+            // Create the output directory if it doesn't exist
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create output directory: {:?}", parent))?;
+        }
     }
 
     // Override state file location if specified
@@ -134,90 +156,33 @@ fn generate_report(cli: &Cli) -> Result<()> {
     let mut state = State::load(&state_file).context("Failed to load state")?;
 
     // Handle cache operations
-    if cli.clear_cache {
+    if clear_cache {
         info!("Clearing cache");
-        clear_cache(&config)?;
+        clear_cache_dir(&config)?;
     }
 
     // Create GitHub client for dynamic updates
     let github_client = GitHubClient::new().context("Failed to create GitHub client")?;
 
-    // Update dynamic repositories if enabled
-    if config.dynamic_repos.enabled {
-        println!("🔍 Discovering active repositories...");
-        info!("Updating dynamic repository list");
-        let mut manager = DynamicRepoManager::new(&config, &mut state, &github_client);
-        match manager.update_repositories() {
-            Ok(result) => {
-                if !result.added.is_empty() {
-                    println!("➕ Added {} new repositories", result.added.len());
-                    for repo in result.added.iter().take(5) {
-                        println!("   - {}", repo);
-                    }
-                    if result.added.len() > 5 {
-                        println!("   ... and {} more", result.added.len() - 5);
-                    }
-                }
-                if !result.removed.is_empty() {
-                    println!("➖ Removed {} inactive repositories", result.removed.len());
-                }
-                println!("📚 Tracking {} repositories total", result.total_tracked);
-                info!(
-                    "Repository update: {} added, {} removed, {} tracked total",
-                    result.added.len(),
-                    result.removed.len(),
-                    result.total_tracked
-                );
-            }
-            Err(e) => {
-                warn!("Failed to update dynamic repositories: {}", e);
-                println!("⚠️  Failed to discover repositories: {}", e);
-                println!("    You may need to manually add repositories to the config file");
-            }
-        }
-    } else {
-        println!(
-            "📚 Tracking {} configured repositories",
-            state.tracked_repos.len()
-        );
-    }
+    // Using activity-based discovery - no need for explicit repository tracking
+    println!("🔍 Discovering repositories from your GitHub activity...");
 
     // Dry run is now handled in the report generator
 
-    if cli.estimate_cost {
+    if estimate_cost {
         info!("Estimating Claude API costs");
         estimate_costs(&config, &state)?;
         return Ok(());
     }
 
-    // Determine the lookback days
-    let lookback_days = if cli.week {
-        info!("Generating weekly report (7 days)");
-        7
-    } else if let Some(since_str) = &cli.since {
-        info!("Using custom since date: {}", since_str);
-        // For now, parse simple day count like "7d" or just a number
-        if since_str.ends_with('d') {
-            let days_str = &since_str[..since_str.len() - 1];
-            days_str
-                .parse::<u32>()
-                .with_context(|| format!("Invalid since format: {}", since_str))?
-        } else {
-            since_str
-                .parse::<u32>()
-                .with_context(|| format!("Invalid since format: {}", since_str))?
-        }
-    } else {
-        // Calculate days since last run, or use max lookback
-        if let Some(last_run) = state.last_run {
-            let now = jiff::Timestamp::now();
-            let diff = now - last_run;
-            let days = (diff.get_days() as u32).max(1);
-            days.min(config.settings.max_lookback_days)
-        } else {
-            config.settings.max_lookback_days
-        }
-    };
+    // Parse the time duration using our new utility
+    use gh_report::time::TimeDuration;
+    let duration: TimeDuration = since
+        .parse()
+        .with_context(|| format!("Invalid time format: {}", since))?;
+    let lookback_days = duration.as_days();
+
+    info!("Using custom since period: {} ({})", since, duration);
 
     info!("Generating report for the last {} days", lookback_days);
     println!("✓ Loading configuration");
@@ -236,12 +201,26 @@ fn generate_report(cli: &Cli) -> Result<()> {
     }
 
     let generator = ReportGenerator::new(github_client, &config, &state);
-    let report = generator
-        .generate(lookback_days)
-        .context("Failed to generate report")?;
+    let report = if dry_run {
+        generator
+            .generate_from_activity_with_progress(lookback_days, true)
+            .context("Failed to generate activity-based report (dry run)")?
+    } else {
+        generator
+            .generate_from_activity(lookback_days)
+            .context("Failed to generate activity-based report")?
+    };
 
     // Save the report
-    let report_path = report.save(&config).context("Failed to save report")?;
+    let report_path = if let Some(output_path) = output {
+        // Custom output path specified
+        report
+            .save_to_path(output_path)
+            .context("Failed to save report to custom path")?
+    } else {
+        // Use default naming and location
+        report.save(&config).context("Failed to save report")?
+    };
 
     println!("✓ Report saved to: {:?}", report_path);
 
@@ -252,7 +231,7 @@ fn generate_report(cli: &Cli) -> Result<()> {
     Ok(())
 }
 
-fn init_command(lookback: u32, output: Option<PathBuf>) -> Result<()> {
+fn init_command(since: &str, output: Option<PathBuf>) -> Result<()> {
     let config_path = output
         .unwrap_or_else(|| Config::default_config_path().expect("Could not determine config path"));
 
@@ -263,9 +242,16 @@ fn init_command(lookback: u32, output: Option<PathBuf>) -> Result<()> {
         return Ok(());
     }
 
+    // Parse the time duration using our new utility
+    use gh_report::time::TimeDuration;
+    let duration: TimeDuration = since
+        .parse()
+        .with_context(|| format!("Invalid time format: {}", since))?;
+    let lookback_days = duration.as_days();
+
     println!(
-        "Analyzing GitHub activity for the past {} days...",
-        lookback
+        "Analyzing GitHub activity for the past {} ({})...",
+        duration, since
     );
 
     // Check GitHub CLI first
@@ -282,45 +268,16 @@ fn init_command(lookback: u32, output: Option<PathBuf>) -> Result<()> {
     // Create GitHub client
     let github_client = GitHubClient::new().context("Failed to create GitHub client")?;
 
-    // Create default config and state for discovery
-    let mut config = Config::default();
-    let mut state = State::default();
+    println!("Creating configuration for activity-based GitHub reporting...");
 
-    // Use dynamic repo manager to discover repositories
-    let mut manager = DynamicRepoManager::new(&config, &mut state, &github_client);
-    let init_result = manager
-        .initialize_repositories(lookback)
-        .context("Failed to discover repositories")?;
+    // Activity-based reporting doesn't need repository discovery during init
+    // The activity feed will automatically find relevant repositories
+    let config = Config::default();
+    let state = State::default();
 
-    println!(
-        "✓ Found {} repositories with recent activity",
-        init_result.total_found
-    );
-
-    if init_result.repositories.is_empty() {
-        println!("\n⚠️  No repositories found with recent activity.");
-        println!("Creating default configuration without repositories.");
-    } else {
-        println!("\nTop repositories by activity score:");
-        for (repo, score) in init_result.repositories.iter().take(10) {
-            println!("  - {} (score: {})", repo, score);
-        }
-
-        if init_result.repositories.len() > 10 {
-            println!("  ... and {} more", init_result.repositories.len() - 10);
-        }
-
-        // Add discovered repos to config
-        for (repo_name, _score) in &init_result.repositories {
-            config.repos.push(gh_report::config::RepoConfig {
-                name: repo_name.clone(),
-                labels: vec![],
-                watch_rules: None,
-                importance_override: None,
-                custom_context: None,
-            });
-        }
-    }
+    println!("✓ Using activity-based repository discovery");
+    println!("  Repositories will be automatically discovered from your GitHub activity");
+    println!("  No manual configuration needed!");
 
     // Write configuration
     let config_str = toml::to_string_pretty(&config).context("Failed to serialize config")?;
@@ -378,7 +335,7 @@ fn rebuild_state_command(cli: &Cli) -> Result<()> {
     Ok(())
 }
 
-fn clear_cache(config: &Config) -> Result<()> {
+fn clear_cache_dir(config: &Config) -> Result<()> {
     let cache_dir = config.settings.report_dir.join(".cache");
     if cache_dir.exists() {
         std::fs::remove_dir_all(&cache_dir)
@@ -458,7 +415,7 @@ fn estimate_costs(config: &Config, state: &State) -> Result<()> {
     Ok(())
 }
 
-fn list_repos_command(lookback: u32, _cli: &Cli) -> Result<()> {
+fn list_repos_command(since: &str, output: &Option<PathBuf>, _cli: &Cli) -> Result<()> {
     // Check GitHub CLI first
     match gh_report::github::check_gh_version() {
         Ok(version) => info!("Using gh version {}", version),
@@ -470,42 +427,60 @@ fn list_repos_command(lookback: u32, _cli: &Cli) -> Result<()> {
         }
     }
 
-    println!(
-        "Discovering repositories you have write access to with recent activity (last 30 days)...",
-    );
+    // Parse the time duration using our new utility
+    use gh_report::time::TimeDuration;
+    let duration: TimeDuration = since
+        .parse()
+        .with_context(|| format!("Invalid time format: {}", since))?;
+    let lookback_days = duration.as_days();
+
+    // Build output as a string that we can either print or write to file
+    let mut output_lines = Vec::new();
+
+    output_lines.push(format!(
+        "Discovering repositories you have write access to with recent activity (last {})...",
+        duration
+    ));
 
     // Create GitHub client
     let github_client = GitHubClient::new().context("Failed to create GitHub client")?;
 
-    // Create default config and state for discovery
-    let config = Config::default();
-    let mut state = State::default();
+    // Use activity-based discovery (same as the main report)
+    let all_events = github_client
+        .fetch_activity(lookback_days)
+        .context("Failed to fetch activity")?;
 
-    // Use dynamic repo manager to discover repositories
-    let mut manager = DynamicRepoManager::new(&config, &mut state, &github_client);
-    let init_result = manager
-        .initialize_repositories(lookback)
-        .context("Failed to discover repositories")?;
+    // Apply default activity filtering
+    let events = filter_events(&all_events, None, None);
 
-    if init_result.repositories.is_empty() {
-        println!("\nNo repositories found matching criteria.");
-        println!("\nThis means either:");
-        println!(
-            "  - No repositories you have write access to have recent activity (last 30 days)"
-        );
-        println!("  - You have recent activity but no write permissions to those repositories");
-        println!("\nTroubleshooting:");
-        println!("  - Check your GitHub CLI authentication: gh auth status");
-        println!("  - Verify you have recent GitHub activity (commits, PRs, comments)");
-        println!("  - Ensure you have push/write access to repositories you expect to see");
+    if events.is_empty() {
+        output_lines.push(format!(
+            "\nNo repositories found with recent activity in the last {}.",
+            duration
+        ));
+        let final_output = output_lines.join("\n");
+
+        if let Some(output_path) = output {
+            std::fs::write(output_path, final_output)
+                .with_context(|| format!("Failed to write output to {:?}", output_path))?;
+            println!("Output saved to: {:?}", output_path);
+        } else {
+            println!("{}", final_output);
+        }
         return Ok(());
+    }
+
+    // Extract unique repositories from events
+    let mut repos: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for event in events {
+        repos.insert(event.repo.name.clone());
     }
 
     // Group repositories by organization
     use std::collections::BTreeMap;
-    let mut grouped_repos: BTreeMap<String, Vec<(String, u32)>> = BTreeMap::new();
+    let mut grouped_repos: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
-    for (repo_name, score) in &init_result.repositories {
+    for repo_name in &repos {
         let (org, repo) = if let Some(slash_pos) = repo_name.find('/') {
             let org = &repo_name[..slash_pos];
             let repo = &repo_name[slash_pos + 1..];
@@ -515,46 +490,54 @@ fn list_repos_command(lookback: u32, _cli: &Cli) -> Result<()> {
             ("(no org)".to_string(), repo_name.clone())
         };
 
-        grouped_repos
-            .entry(org)
-            .or_insert_with(Vec::new)
-            .push((repo, *score));
+        grouped_repos.entry(org).or_insert_with(Vec::new).push(repo);
     }
 
-    // Sort repositories within each org by score (highest first)
+    // Sort repositories within each org alphabetically
     for repos in grouped_repos.values_mut() {
-        repos.sort_by(|a, b| b.1.cmp(&a.1));
+        repos.sort();
     }
 
-    println!(
+    output_lines.push(format!(
         "\nFound {} repositories across {} organizations:",
-        init_result.repositories.len(),
+        repos.len(),
         grouped_repos.len()
-    );
-    println!("\n{}", "=".repeat(60));
+    ));
+    output_lines.push(format!("\n{}", "=".repeat(60)));
 
     for (org, repos) in &grouped_repos {
-        println!("\n**{}** ({} repositories)", org, repos.len());
+        output_lines.push(format!("\n**{}** ({} repositories)", org, repos.len()));
 
-        for (repo, _score) in repos {
-            println!("   {}", repo);
+        for repo in repos {
+            output_lines.push(format!("   {}", repo));
         }
     }
 
-    println!("\n{}", "=".repeat(60));
-    println!("\nTo initialize with these repositories:");
-    println!("   gh-report init --lookback {}", lookback);
-    println!("\nSelection criteria:");
-    println!("   - Must have write/push access to the repository");
-    println!("   - Must have recent activity (last 30 days): commits, PRs, comments, etc.");
+    output_lines.push(format!("\n{}", "=".repeat(60)));
+    output_lines
+        .push("\nThese repositories have recent activity and will be automatically".to_string());
+    output_lines.push("included in reports based on your GitHub activity feed.".to_string());
+    output_lines.push("\nSelection criteria:".to_string());
+    output_lines.push(format!("   - Recent activity in the last {}", duration));
+    output_lines.push("   - Activity types: issues, PRs, comments, reviews".to_string());
+
+    let final_output = output_lines.join("\n");
+
+    if let Some(output_path) = output {
+        std::fs::write(output_path, final_output)
+            .with_context(|| format!("Failed to write output to {:?}", output_path))?;
+        println!("Output saved to: {:?}", output_path);
+    } else {
+        println!("{}", final_output);
+    }
 
     Ok(())
 }
 
 fn filter_events<'a>(
-    events: &'a [gh_report::github::ActivityEvent], 
-    include_types: Option<&Vec<String>>, 
-    exclude_types: Option<&Vec<String>>
+    events: &'a [gh_report::github::ActivityEvent],
+    include_types: Option<&Vec<String>>,
+    exclude_types: Option<&Vec<String>>,
 ) -> Vec<&'a gh_report::github::ActivityEvent> {
     let default_included_types = vec![
         "IssueCommentEvent".to_string(),
@@ -563,39 +546,43 @@ fn filter_events<'a>(
         "PullRequestReviewCommentEvent".to_string(),
         "PullRequestReviewEvent".to_string(),
     ];
-    
-    events.iter().filter(|event| {
-        // First check include types (default to user's preferred list if not specified)
-        let included_types = include_types.unwrap_or(&default_included_types);
-        if !included_types.contains(&event.event_type) {
-            return false;
-        }
-        
-        // Check exclude types
-        if let Some(excluded) = exclude_types {
-            if excluded.contains(&event.event_type) {
+
+    events
+        .iter()
+        .filter(|event| {
+            // First check include types (default to user's preferred list if not specified)
+            let included_types = include_types.unwrap_or(&default_included_types);
+            if !included_types.contains(&event.event_type) {
                 return false;
             }
-        }
-        
-        // Special filtering for IssuesEvent - exclude 'labeled' actions
-        if event.event_type == "IssuesEvent" {
-            if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
-                if action == "labeled" || action == "unlabeled" {
+
+            // Check exclude types
+            if let Some(excluded) = exclude_types {
+                if excluded.contains(&event.event_type) {
                     return false;
                 }
             }
-        }
-        
-        true
-    }).collect()
+
+            // Special filtering for IssuesEvent - exclude 'labeled' actions
+            if event.event_type == "IssuesEvent" {
+                if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
+                    if action == "labeled" || action == "unlabeled" {
+                        return false;
+                    }
+                }
+            }
+
+            true
+        })
+        .collect()
 }
 
 fn activity_command(
-    days: u32, 
-    include_types: Option<&Vec<String>>, 
-    exclude_types: Option<&Vec<String>>, 
-    _cli: &Cli
+    since: &str,
+    include_types: Option<&Vec<String>>,
+    exclude_types: Option<&Vec<String>>,
+    output: &Option<PathBuf>,
+    _cli: &Cli,
 ) -> Result<()> {
     // Check GitHub CLI first
     match gh_report::github::check_gh_version() {
@@ -608,7 +595,20 @@ fn activity_command(
         }
     }
 
-    println!("Fetching activity on repositories you're subscribed to for the last {} days...", days);
+    // Parse the time duration using our new utility
+    use gh_report::time::TimeDuration;
+    let duration: TimeDuration = since
+        .parse()
+        .with_context(|| format!("Invalid time format: {}", since))?;
+    let days = duration.as_days();
+
+    // Build output as a string that we can either print or write to file
+    let mut output_lines = Vec::new();
+
+    output_lines.push(format!(
+        "Fetching activity on repositories you're subscribed to for the last {} ({})...",
+        duration, since
+    ));
 
     // Create GitHub client
     let github_client = GitHubClient::new().context("Failed to create GitHub client")?;
@@ -622,25 +622,41 @@ fn activity_command(
     let events = filter_events(&all_events, include_types, exclude_types);
 
     if events.is_empty() {
-        println!("\nNo matching activity found in the last {} days.", days);
+        output_lines.push(format!(
+            "\nNo matching activity found in the last {}.",
+            duration
+        ));
         if all_events.len() > 0 {
-            println!("({} events were filtered out)", all_events.len());
+            output_lines.push(format!("({} events were filtered out)", all_events.len()));
+        }
+
+        let final_output = output_lines.join("\n");
+
+        if let Some(output_path) = output {
+            std::fs::write(output_path, final_output)
+                .with_context(|| format!("Failed to write output to {:?}", output_path))?;
+            println!("Output saved to: {:?}", output_path);
+        } else {
+            println!("{}", final_output);
         }
         return Ok(());
     }
 
     // Group events by date → repo → issue/PR
     use std::collections::BTreeMap;
-    
-    let mut events_by_date: BTreeMap<String, BTreeMap<String, BTreeMap<Option<IssueKey>, Vec<&gh_report::github::ActivityEvent>>>> = BTreeMap::new();
+
+    let mut events_by_date: BTreeMap<
+        String,
+        BTreeMap<String, BTreeMap<Option<IssueKey>, Vec<&gh_report::github::ActivityEvent>>>,
+    > = BTreeMap::new();
 
     for event in &events {
         let date_key = event.created_at.strftime("%Y-%m-%d").to_string();
         let repo_name = event.repo.name.clone();
-        
+
         // Extract issue/PR number if available
         let issue_key = extract_issue_key(event);
-        
+
         events_by_date
             .entry(date_key)
             .or_insert_with(BTreeMap::new)
@@ -651,37 +667,50 @@ fn activity_command(
             .push(event);
     }
 
-    println!("\nActivity Summary ({} events):", events.len());
-    println!("{}", "=".repeat(60));
+    output_lines.push(format!("\nActivity Summary ({} events):", events.len()));
+    output_lines.push(format!("{}", "=".repeat(60)));
 
     // Display events grouped by date → repo → issue/PR
     for (date, repos_events) in events_by_date.iter().rev() {
-        let total_events: usize = repos_events.values()
-            .map(|repo_issues| repo_issues.values().map(|events| events.len()).sum::<usize>())
+        let total_events: usize = repos_events
+            .values()
+            .map(|repo_issues| {
+                repo_issues
+                    .values()
+                    .map(|events| events.len())
+                    .sum::<usize>()
+            })
             .sum();
-        println!("\n**{}** ({} events)", date, total_events);
-        
+        output_lines.push(format!("\n**{}** ({} events)", date, total_events));
+
         for (repo_name, issues_events) in repos_events {
             let _repo_event_count: usize = issues_events.values().map(|events| events.len()).sum();
-            println!("  {}", repo_name);
-            
+            output_lines.push(format!("  {}", repo_name));
+
             for (issue_key, issue_events) in issues_events {
                 match issue_key {
                     Some(key) => {
                         let item_type = if key.is_pr { "PR" } else { "Issue" };
-                        let actors: Vec<String> = issue_events.iter()
+                        let actors: Vec<String> = issue_events
+                            .iter()
                             .map(|e| format!("@{}", e.actor.login))
                             .collect::<std::collections::HashSet<_>>()
                             .into_iter()
                             .collect();
                         let actions = consolidate_actions(issue_events);
-                        println!("    {} #{}: {} ({})", item_type, key.issue_number, actions, actors.join(", "));
+                        output_lines.push(format!(
+                            "    {} #{}: {} ({})",
+                            item_type,
+                            key.issue_number,
+                            actions,
+                            actors.join(", ")
+                        ));
                     }
                     None => {
                         // Events without specific issue/PR (e.g., general repo activity)
                         for event in issue_events {
                             let event_desc = format_activity_event(event);
-                            println!("    {}", event_desc);
+                            output_lines.push(format!("    {}", event_desc));
                         }
                     }
                 }
@@ -689,20 +718,33 @@ fn activity_command(
         }
     }
 
-    println!("\n{}", "=".repeat(60));
-    println!("\nEvent types found:");
-    
+    output_lines.push(format!("\n{}", "=".repeat(60)));
+    output_lines.push("\nEvent types found:".to_string());
+
     // Count event types
-    let mut event_type_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut event_type_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     for event in &events {
-        *event_type_counts.entry(event.event_type.clone()).or_insert(0) += 1;
+        *event_type_counts
+            .entry(event.event_type.clone())
+            .or_insert(0) += 1;
     }
 
     let mut sorted_types: Vec<_> = event_type_counts.iter().collect();
     sorted_types.sort_by(|a, b| b.1.cmp(a.1));
 
     for (event_type, count) in sorted_types {
-        println!("   - {}: {}", event_type, count);
+        output_lines.push(format!("   - {}: {}", event_type, count));
+    }
+
+    let final_output = output_lines.join("\n");
+
+    if let Some(output_path) = output {
+        std::fs::write(output_path, final_output)
+            .with_context(|| format!("Failed to write output to {:?}", output_path))?;
+        println!("Output saved to: {:?}", output_path);
+    } else {
+        println!("{}", final_output);
     }
 
     Ok(())
@@ -711,7 +753,8 @@ fn activity_command(
 fn extract_issue_key(event: &gh_report::github::ActivityEvent) -> Option<IssueKey> {
     match event.event_type.as_str() {
         "PullRequestEvent" => {
-            if let Some(pr_number) = event.payload
+            if let Some(pr_number) = event
+                .payload
                 .get("pull_request")
                 .and_then(|pr| pr.get("number"))
                 .and_then(|n| n.as_u64())
@@ -725,17 +768,19 @@ fn extract_issue_key(event: &gh_report::github::ActivityEvent) -> Option<IssueKe
             }
         }
         "IssuesEvent" | "IssueCommentEvent" => {
-            if let Some(issue_number) = event.payload
+            if let Some(issue_number) = event
+                .payload
                 .get("issue")
                 .and_then(|issue| issue.get("number"))
                 .and_then(|n| n.as_u64())
             {
                 // Check if this is actually a PR (issues API includes PRs)
-                let is_pr = event.payload
+                let is_pr = event
+                    .payload
                     .get("issue")
                     .and_then(|issue| issue.get("pull_request"))
                     .is_some();
-                
+
                 Some(IssueKey {
                     issue_number,
                     is_pr,
@@ -745,7 +790,8 @@ fn extract_issue_key(event: &gh_report::github::ActivityEvent) -> Option<IssueKe
             }
         }
         "PullRequestReviewCommentEvent" => {
-            if let Some(pr_number) = event.payload
+            if let Some(pr_number) = event
+                .payload
                 .get("pull_request")
                 .and_then(|pr| pr.get("number"))
                 .and_then(|n| n.as_u64())
@@ -764,9 +810,9 @@ fn extract_issue_key(event: &gh_report::github::ActivityEvent) -> Option<IssueKe
 
 fn consolidate_actions(events: &[&gh_report::github::ActivityEvent]) -> String {
     use std::collections::HashSet;
-    
+
     let mut actions = HashSet::new();
-    
+
     for event in events {
         match event.event_type.as_str() {
             "PullRequestEvent" => {
@@ -790,7 +836,7 @@ fn consolidate_actions(events: &[&gh_report::github::ActivityEvent]) -> String {
             }
         }
     }
-    
+
     let mut action_list: Vec<String> = actions.into_iter().collect();
     action_list.sort();
     action_list.join(", ")
@@ -815,7 +861,8 @@ fn format_activity_event(event: &gh_report::github::ActivityEvent) -> String {
         }
         "PullRequestEvent" => {
             if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
-                if let Some(pr_number) = event.payload
+                if let Some(pr_number) = event
+                    .payload
                     .get("pull_request")
                     .and_then(|pr| pr.get("number"))
                     .and_then(|n| n.as_u64())
@@ -830,7 +877,8 @@ fn format_activity_event(event: &gh_report::github::ActivityEvent) -> String {
         }
         "IssuesEvent" => {
             if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
-                if let Some(issue_number) = event.payload
+                if let Some(issue_number) = event
+                    .payload
                     .get("issue")
                     .and_then(|issue| issue.get("number"))
                     .and_then(|n| n.as_u64())
@@ -844,7 +892,8 @@ fn format_activity_event(event: &gh_report::github::ActivityEvent) -> String {
             }
         }
         "IssueCommentEvent" => {
-            if let Some(issue_number) = event.payload
+            if let Some(issue_number) = event
+                .payload
                 .get("issue")
                 .and_then(|issue| issue.get("number"))
                 .and_then(|n| n.as_u64())
@@ -855,7 +904,8 @@ fn format_activity_event(event: &gh_report::github::ActivityEvent) -> String {
             }
         }
         "PullRequestReviewEvent" => {
-            if let Some(pr_number) = event.payload
+            if let Some(pr_number) = event
+                .payload
                 .get("pull_request")
                 .and_then(|pr| pr.get("number"))
                 .and_then(|n| n.as_u64())
@@ -866,7 +916,8 @@ fn format_activity_event(event: &gh_report::github::ActivityEvent) -> String {
             }
         }
         "PullRequestReviewCommentEvent" => {
-            if let Some(pr_number) = event.payload
+            if let Some(pr_number) = event
+                .payload
                 .get("pull_request")
                 .and_then(|pr| pr.get("number"))
                 .and_then(|n| n.as_u64())

@@ -10,6 +10,7 @@ pub mod progress;
 pub mod report;
 pub mod state;
 pub mod summarize;
+pub mod time;
 
 #[cfg(test)]
 pub mod test_utils;

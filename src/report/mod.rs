@@ -40,6 +40,21 @@ impl Report {
         Ok(filepath)
     }
 
+    /// Save the report to a specific file path
+    pub fn save_to_path(&self, path: &PathBuf) -> Result<PathBuf> {
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {:?}", parent))?;
+        }
+
+        // Write report
+        fs::write(path, &self.content)
+            .with_context(|| format!("Failed to write report to {:?}", path))?;
+
+        Ok(path.clone())
+    }
+
     /// Generate filename based on config format
     fn generate_filename(&self, config: &Config) -> String {
         let mut filename = config.settings.file_name_format.clone();

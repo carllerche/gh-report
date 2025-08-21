@@ -71,6 +71,125 @@ impl<'a> ReportGenerator<'a> {
         self.generate_with_progress(lookback_days, false)
     }
 
+    /// Generate report from GitHub activity feed (new approach)
+    pub fn generate_from_activity(&self, lookback_days: u32) -> Result<Report> {
+        self.generate_from_activity_with_progress(lookback_days, false)
+    }
+
+    /// Generate report from GitHub activity feed with progress tracking
+    pub fn generate_from_activity_with_progress(
+        &self,
+        lookback_days: u32,
+        dry_run: bool,
+    ) -> Result<Report> {
+        let mut progress = ProgressReporter::new();
+        let now = Timestamp::now();
+
+        if !progress.is_interactive() {
+            info!(
+                "Generating activity-based report for the last {} days",
+                lookback_days
+            );
+        }
+
+        if dry_run {
+            info!("DRY RUN: Showing what would be fetched without generating report");
+        }
+
+        let _spinner = progress.spinner("Fetching activity feed");
+
+        // Fetch activity events using the same filtering as the activity command
+        let all_events = self
+            .github_client
+            .fetch_activity(lookback_days)
+            .context("Failed to fetch activity")?;
+
+        // Apply default activity filtering (same as activity command)
+        let events = self.filter_activity_events(&all_events);
+
+        if events.is_empty() {
+            warn!(
+                "No relevant activity found in the last {} days",
+                lookback_days
+            );
+            return Ok(Report {
+                title: "No Activity Report".to_string(),
+                content: format!("# No GitHub Activity\n\nNo relevant activity found in the last {} days.\n\n*Report generated at {}*",
+                    lookback_days,
+                    now.strftime("%Y-%m-%d %H:%M")
+                ),
+                timestamp: now,
+                estimated_cost: 0.0,
+            });
+        }
+
+        info!("Found {} relevant activity events", events.len());
+        let _spinner2 = progress.spinner("Extracting issues and PRs");
+
+        // Extract unique issues/PRs from activity events
+        let issue_refs = self.extract_issue_references(&events);
+
+        if issue_refs.is_empty() {
+            warn!("No issues or PRs found in activity");
+            return Ok(Report {
+                title: "No Issues Found".to_string(),
+                content: format!("# No Issues or PRs\n\nNo issues or pull requests found in recent activity.\n\n*Report generated at {}*",
+                    now.strftime("%Y-%m-%d %H:%M")
+                ),
+                timestamp: now,
+                estimated_cost: 0.0,
+            });
+        }
+
+        info!("Found {} unique issues/PRs to analyze", issue_refs.len());
+        let _spinner3 = progress.spinner("Fetching issue details");
+
+        // Fetch full context for each issue/PR
+        let mut all_issue_data = Vec::new();
+        let mut errors = Vec::new();
+
+        for (repo, issue_number) in &issue_refs {
+            if dry_run {
+                println!("Would fetch: {}/issues/{}", repo, issue_number);
+                continue;
+            }
+
+            match self.github_client.fetch_single_issue(repo, *issue_number) {
+                Ok((issue, comments)) => {
+                    all_issue_data.push((issue, comments));
+                }
+                Err(e) => {
+                    warn!("Failed to fetch {}/issues/{}: {}", repo, issue_number, e);
+                    errors.push(format!(
+                        "Failed to fetch {}/issues/{}: {}",
+                        repo, issue_number, e
+                    ));
+                }
+            }
+        }
+
+        if dry_run {
+            return Ok(Report {
+                title: "Dry Run Complete".to_string(),
+                content: format!("# Dry Run Report\n\nWould have fetched {} issues/PRs.\n\n*Report generated at {}*",
+                    issue_refs.len(),
+                    now.strftime("%Y-%m-%d %H:%M")
+                ),
+                timestamp: now,
+                estimated_cost: 0.0,
+            });
+        }
+
+        info!("Successfully fetched {} issues/PRs", all_issue_data.len());
+        let _spinner4 = progress.spinner("Organizing activities");
+
+        // Group issues by repository for existing report logic
+        let activities = self.group_issues_by_repo(all_issue_data);
+
+        // Use existing intelligent analysis and report generation
+        self.generate_final_report(activities, now, &mut progress, errors)
+    }
+
     pub fn generate_with_progress(&self, lookback_days: u32, dry_run: bool) -> Result<Report> {
         let mut progress = ProgressReporter::new();
         let now = Timestamp::now();
@@ -457,6 +576,194 @@ impl<'a> ReportGenerator<'a> {
         } else {
             date_range
         }
+    }
+
+    /// Filter activity events using the same logic as the activity command
+    fn filter_activity_events<'e>(
+        &self,
+        events: &'e [crate::github::ActivityEvent],
+    ) -> Vec<&'e crate::github::ActivityEvent> {
+        let default_included_types = vec![
+            "IssueCommentEvent".to_string(),
+            "PullRequestEvent".to_string(),
+            "IssuesEvent".to_string(),
+            "PullRequestReviewCommentEvent".to_string(),
+            "PullRequestReviewEvent".to_string(),
+        ];
+
+        events
+            .iter()
+            .filter(|event| {
+                // Check if this event type should be included
+                if !default_included_types.contains(&event.event_type) {
+                    return false;
+                }
+
+                // Special filtering for IssuesEvent - exclude 'labeled' actions
+                if event.event_type == "IssuesEvent" {
+                    if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
+                        if action == "labeled" || action == "unlabeled" {
+                            return false;
+                        }
+                    }
+                }
+
+                true
+            })
+            .collect()
+    }
+
+    /// Extract unique issue/PR references from activity events
+    fn extract_issue_references(
+        &self,
+        events: &[&crate::github::ActivityEvent],
+    ) -> Vec<(String, u32)> {
+        use std::collections::HashSet;
+        let mut refs = HashSet::new();
+
+        for event in events {
+            let repo_name = &event.repo.name;
+
+            match event.event_type.as_str() {
+                "PullRequestEvent" => {
+                    if let Some(pr_number) = event
+                        .payload
+                        .get("pull_request")
+                        .and_then(|pr| pr.get("number"))
+                        .and_then(|n| n.as_u64())
+                    {
+                        refs.insert((repo_name.clone(), pr_number as u32));
+                    }
+                }
+                "IssuesEvent" | "IssueCommentEvent" => {
+                    if let Some(issue_number) = event
+                        .payload
+                        .get("issue")
+                        .and_then(|issue| issue.get("number"))
+                        .and_then(|n| n.as_u64())
+                    {
+                        refs.insert((repo_name.clone(), issue_number as u32));
+                    }
+                }
+                "PullRequestReviewCommentEvent" | "PullRequestReviewEvent" => {
+                    if let Some(pr_number) = event
+                        .payload
+                        .get("pull_request")
+                        .and_then(|pr| pr.get("number"))
+                        .and_then(|n| n.as_u64())
+                    {
+                        refs.insert((repo_name.clone(), pr_number as u32));
+                    }
+                }
+                _ => {
+                    // For other event types, try to extract issue/PR from payload
+                    if let Some(issue_number) = event
+                        .payload
+                        .get("issue")
+                        .and_then(|issue| issue.get("number"))
+                        .and_then(|n| n.as_u64())
+                    {
+                        refs.insert((repo_name.clone(), issue_number as u32));
+                    }
+                }
+            }
+        }
+
+        refs.into_iter().collect()
+    }
+
+    /// Group issues by repository to match existing report structure
+    fn group_issues_by_repo(
+        &self,
+        issue_data: Vec<(Issue, Vec<crate::github::Comment>)>,
+    ) -> BTreeMap<String, crate::github::RepoActivity> {
+        let mut activities = BTreeMap::new();
+
+        for (issue, comments) in issue_data {
+            let repo_name = issue
+                .repository_name()
+                .unwrap_or_else(|| "unknown".to_string());
+            let activity =
+                activities
+                    .entry(repo_name)
+                    .or_insert_with(|| crate::github::RepoActivity {
+                        new_issues: Vec::new(),
+                        updated_issues: Vec::new(),
+                        new_prs: Vec::new(),
+                        updated_prs: Vec::new(),
+                        new_comments: Vec::new(),
+                    });
+
+            // Store the issue with comments in new_comments since they all have recent activity
+            activity.new_comments.push((issue.clone(), comments));
+
+            // Also add to appropriate category for backward compatibility
+            if issue.is_pull_request {
+                activity.updated_prs.push(issue);
+            } else {
+                activity.updated_issues.push(issue);
+            }
+        }
+
+        activities
+    }
+
+    /// Generate the final report using existing logic
+    fn generate_final_report(
+        &self,
+        activities: BTreeMap<String, crate::github::RepoActivity>,
+        now: Timestamp,
+        progress: &mut ProgressReporter,
+        errors: Vec<String>,
+    ) -> Result<Report> {
+        if activities.is_empty() {
+            return Ok(Report {
+                title: "No Activities Found".to_string(),
+                content: format!("# No Activities\n\nNo relevant activities found to report.\n\n*Report generated at {}*",
+                    now.strftime("%Y-%m-%d %H:%M")
+                ),
+                timestamp: now,
+                estimated_cost: 0.0,
+            });
+        }
+
+        // Use existing intelligent analysis
+        let _spinner = progress.spinner("Analyzing importance");
+        let analyzer = IntelligentAnalyzer::new(self.config);
+        let _analysis = analyzer.analyze(&activities);
+
+        let mut total_cost = 0.0;
+        let since = now - (7 as i64 * 24).hours(); // Default to 7 days back
+
+        // Generate AI summary if Claude is available
+        let (summary, title) = if let Some(ref claude) = self.claude_client {
+            let _ai_spinner = progress.spinner("Generating AI summary");
+            match self.generate_ai_summary(claude, &activities) {
+                Ok((sum, tit, cost)) => {
+                    total_cost += cost;
+                    (sum, tit)
+                }
+                Err(e) => {
+                    warn!("Failed to generate AI summary: {}", e);
+                    // Fall back to basic summary
+                    let template = ReportTemplate::new(self.config);
+                    let content = template.render(&activities, since, now, &errors)?;
+                    (content, "GitHub Activity Report".to_string())
+                }
+            }
+        } else {
+            // Use template-based generation
+            let template = ReportTemplate::new(self.config);
+            let content = template.render(&activities, since, now, &errors)?;
+            (content, "GitHub Activity Report".to_string())
+        };
+
+        Ok(Report {
+            title,
+            content: summary,
+            timestamp: now,
+            estimated_cost: total_cost,
+        })
     }
 }
 

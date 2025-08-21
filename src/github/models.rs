@@ -20,6 +20,21 @@ pub struct Issue {
     pub is_pull_request: bool,
 }
 
+impl Issue {
+    /// Extract repository name from the issue URL
+    /// URL format: https://github.com/owner/repo/issues/123 or https://github.com/owner/repo/pull/123
+    pub fn repository_name(&self) -> Option<String> {
+        let url_without_prefix = self.url.strip_prefix("https://github.com/")?;
+        let parts: Vec<&str> = url_without_prefix.split('/').collect();
+
+        if parts.len() >= 2 {
+            Some(format!("{}/{}", parts[0], parts[1]))
+        } else {
+            None
+        }
+    }
+}
+
 /// Issue or PR state
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "UPPERCASE")]

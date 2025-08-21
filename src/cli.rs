@@ -16,45 +16,9 @@ pub struct Cli {
     #[arg(short, long, env = "GH_REPORT_CONFIG")]
     pub config: Option<PathBuf>,
 
-    /// Override the automatic date detection
-    #[arg(long)]
-    pub since: Option<String>,
-
-    /// Generate report for the past week
-    #[arg(long, conflicts_with = "since")]
-    pub week: bool,
-
-    /// Override the directory where reports are saved
-    #[arg(long)]
-    pub report_dir: Option<PathBuf>,
-
     /// Override the state file location
     #[arg(long)]
     pub state: Option<PathBuf>,
-
-    /// Override Claude backend (api, cli, auto)
-    #[arg(long, value_name = "BACKEND")]
-    pub claude_backend: Option<String>,
-
-    /// Override the output file location
-    #[arg(short, long)]
-    pub output: Option<PathBuf>,
-
-    /// Preview what would be fetched without generating report
-    #[arg(long)]
-    pub dry_run: bool,
-
-    /// Show estimated Claude API cost before proceeding
-    #[arg(long)]
-    pub estimate_cost: bool,
-
-    /// Bypass cache and fetch fresh data from all sources
-    #[arg(long)]
-    pub no_cache: bool,
-
-    /// Clear all cached data before running
-    #[arg(long)]
-    pub clear_cache: bool,
 
     /// Verbosity level (can be repeated)
     #[arg(short, long, action = clap::ArgAction::Count)]
@@ -63,14 +27,41 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
+    /// Generate activity report
+    Report {
+        /// Time period to look back (e.g., 3d, 12h, 2w)
+        #[arg(long, default_value = "7d")]
+        since: String,
+
+        /// Override the output file location  
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Preview what would be fetched without generating report
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Show estimated Claude API cost before proceeding
+        #[arg(long)]
+        estimate_cost: bool,
+
+        /// Bypass cache and fetch fresh data from all sources
+        #[arg(long)]
+        no_cache: bool,
+
+        /// Clear all cached data before running
+        #[arg(long)]
+        clear_cache: bool,
+    },
+
     /// Analyze GitHub activity and generate initial configuration
     Init {
-        /// Number of days to look back
-        #[arg(long, default_value = "30")]
-        lookback: u32,
+        /// Time period to look back (e.g., 30d, 4w, 720h)
+        #[arg(long, default_value = "30d")]
+        since: String,
 
         /// Where to write the configuration file
-        #[arg(long)]
+        #[arg(short, long)]
         output: Option<PathBuf>,
     },
 
@@ -93,26 +84,34 @@ pub enum Commands {
 
     /// List repositories with recent activity (preview for init)
     ListRepos {
-        /// Number of days to look back
-        #[arg(long, default_value = "30")]
-        lookback: u32,
+        /// Time period to look back (e.g., 30d, 4w, 720h)
+        #[arg(long, default_value = "30d")]
+        since: String,
+
+        /// Save the list to a file
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
 
     /// Show your GitHub activity feed
     Activity {
-        /// Number of days to look back
-        #[arg(long, default_value = "7")]
-        days: u32,
-        
+        /// Time period to look back (e.g., 7d, 12h, 2w)
+        #[arg(long, default_value = "7d")]
+        since: String,
+
         /// Include only these event types (comma-separated)
         /// Examples: IssueCommentEvent,PullRequestEvent,IssuesEvent
         #[arg(long, value_delimiter = ',')]
         include_types: Option<Vec<String>>,
-        
+
         /// Exclude these event types (comma-separated)
         /// Examples: WatchEvent,ForkEvent,PushEvent
         #[arg(long, value_delimiter = ',')]
         exclude_types: Option<Vec<String>>,
+
+        /// Save the activity to a file
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
 }
 
@@ -127,21 +126,17 @@ mod tests {
         let cli = Cli::parse_from(args);
 
         assert!(cli.command.is_none());
-        assert!(!cli.dry_run);
-        assert!(!cli.estimate_cost);
-        assert!(!cli.no_cache);
-        assert!(!cli.clear_cache);
         assert_eq!(cli.verbose, 0);
     }
 
     #[test]
     fn test_cli_parsing_init() {
-        let args = vec!["gh-report", "init", "--lookback", "14"];
+        let args = vec!["gh-report", "init", "--since", "14d"];
         let cli = Cli::parse_from(args);
 
         match cli.command {
-            Some(Commands::Init { lookback, output }) => {
-                assert_eq!(lookback, 14);
+            Some(Commands::Init { since, output }) => {
+                assert_eq!(since, "14d");
                 assert!(output.is_none());
             }
             _ => panic!("Expected Init command"),
@@ -149,22 +144,43 @@ mod tests {
     }
 
     #[test]
-    fn test_cli_parsing_flags() {
-        let args = vec!["gh-report", "--dry-run", "--estimate-cost", "-vv"];
+    fn test_cli_parsing_report_flags() {
+        let args = vec![
+            "gh-report",
+            "report",
+            "--dry-run",
+            "--estimate-cost",
+            "--since",
+            "3d",
+        ];
         let cli = Cli::parse_from(args);
 
-        assert!(cli.dry_run);
-        assert!(cli.estimate_cost);
-        assert_eq!(cli.verbose, 2);
+        match cli.command {
+            Some(Commands::Report {
+                since,
+                dry_run,
+                estimate_cost,
+                ..
+            }) => {
+                assert_eq!(since, "3d");
+                assert!(dry_run);
+                assert!(estimate_cost);
+            }
+            _ => panic!("Expected Report command"),
+        }
     }
 
     #[test]
-    fn test_cli_parsing_week_flag() {
-        let args = vec!["gh-report", "--week"];
+    fn test_cli_parsing_report_with_output() {
+        let args = vec!["gh-report", "report", "--output", "/tmp/custom-report.md"];
         let cli = Cli::parse_from(args);
 
-        assert!(cli.week);
-        assert!(cli.since.is_none());
+        match cli.command {
+            Some(Commands::Report { output, .. }) => {
+                assert_eq!(output, Some(PathBuf::from("/tmp/custom-report.md")));
+            }
+            _ => panic!("Expected Report command"),
+        }
     }
 
     #[test]
@@ -237,21 +253,23 @@ mod tests {
         let cli = Cli::parse_from(args);
 
         match cli.command {
-            Some(Commands::ListRepos { lookback }) => {
-                assert_eq!(lookback, 30); // default value
+            Some(Commands::ListRepos { since, output }) => {
+                assert_eq!(since, "30d"); // default value
+                assert!(output.is_none());
             }
             _ => panic!("Expected ListRepos command"),
         }
     }
 
     #[test]
-    fn test_cli_parsing_list_repos_with_lookback() {
-        let args = vec!["gh-report", "list-repos", "--lookback", "14"];
+    fn test_cli_parsing_list_repos_with_since() {
+        let args = vec!["gh-report", "list-repos", "--since", "14d"];
         let cli = Cli::parse_from(args);
 
         match cli.command {
-            Some(Commands::ListRepos { lookback }) => {
-                assert_eq!(lookback, 14);
+            Some(Commands::ListRepos { since, output }) => {
+                assert_eq!(since, "14d");
+                assert!(output.is_none());
             }
             _ => panic!("Expected ListRepos command"),
         }
@@ -263,25 +281,37 @@ mod tests {
         let cli = Cli::parse_from(args);
 
         match cli.command {
-            Some(Commands::Activity { days, include_types, exclude_types }) => {
-                assert_eq!(*days, 7); // default value
+            Some(Commands::Activity {
+                since,
+                include_types,
+                exclude_types,
+                output,
+            }) => {
+                assert_eq!(since, "7d"); // default value
                 assert!(include_types.is_none());
                 assert!(exclude_types.is_none());
+                assert!(output.is_none());
             }
             _ => panic!("Expected Activity command"),
         }
     }
 
     #[test]
-    fn test_cli_parsing_activity_with_days() {
-        let args = vec!["gh-report", "activity", "--days", "14"];
+    fn test_cli_parsing_activity_with_since() {
+        let args = vec!["gh-report", "activity", "--since", "14d"];
         let cli = Cli::parse_from(args);
 
         match cli.command {
-            Some(Commands::Activity { days, include_types, exclude_types }) => {
-                assert_eq!(*days, 14);
+            Some(Commands::Activity {
+                since,
+                include_types,
+                exclude_types,
+                output,
+            }) => {
+                assert_eq!(since, "14d");
                 assert!(include_types.is_none());
                 assert!(exclude_types.is_none());
+                assert!(output.is_none());
             }
             _ => panic!("Expected Activity command"),
         }

@@ -296,14 +296,10 @@ impl RealGitHub {
     pub fn fetch_activity(&self, days: u32) -> Result<Vec<ActivityEvent>> {
         // Get current username first
         let username = self.get_current_user()?;
-        
+
         // Use gh api to fetch received events (activities on subscribed repos)
         let endpoint = format!("/users/{}/received_events", username);
-        let args = vec![
-            "api",
-            &endpoint,
-            "--paginate"
-        ];
+        let args = vec!["api", &endpoint, "--paginate"];
 
         let events: Vec<ActivityEvent> = self.execute_gh(&args)?;
 

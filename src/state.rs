@@ -8,10 +8,15 @@ use std::path::Path;
 pub struct State {
     pub last_run: Option<Timestamp>,
     pub last_report_file: Option<String>,
+    /// DEPRECATED: Repository tracking is no longer used with activity-based discovery
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[deprecated(note = "Repository tracking is no longer used with activity-based discovery")]
     pub tracked_repos: HashMap<String, RepoState>,
 }
 
+/// DEPRECATED: RepoState is no longer used with activity-based discovery
 #[derive(Debug, Deserialize, Serialize)]
+#[deprecated(note = "RepoState is no longer used with activity-based discovery")]
 pub struct RepoState {
     pub last_seen: Timestamp,
     pub activity_score: u32,
