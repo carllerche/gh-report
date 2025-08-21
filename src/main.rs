@@ -691,20 +691,31 @@ fn activity_command(
                 match issue_key {
                     Some(key) => {
                         let item_type = if key.is_pr { "PR" } else { "Issue" };
-                        let actors: Vec<String> = issue_events
+                        
+                        // Extract title from the first event that has one
+                        let title = issue_events
                             .iter()
-                            .map(|e| format!("@{}", e.actor.login))
-                            .collect::<std::collections::HashSet<_>>()
-                            .into_iter()
-                            .collect();
-                        let actions = consolidate_actions(issue_events);
+                            .find_map(|event| extract_title_from_event(event))
+                            .unwrap_or_else(|| "[No title]".to_string());
+                        let truncated_title = truncate_title(&title, 60);
+                        
+                        // Show issue/PR with title
                         output_lines.push(format!(
-                            "    {} #{}: {} ({})",
+                            "    {} #{} - {}",
                             item_type,
                             key.issue_number,
-                            actions,
-                            actors.join(", ")
+                            truncated_title
                         ));
+                        
+                        // Group events by action and show them indented
+                        let action_groups = group_events_by_action(issue_events);
+                        for (action, actors) in action_groups {
+                            output_lines.push(format!(
+                                "      - {} ({})",
+                                action,
+                                actors.join(", ")
+                            ));
+                        }
                     }
                     None => {
                         // Events without specific issue/PR (e.g., general repo activity)
@@ -806,40 +817,6 @@ fn extract_issue_key(event: &gh_report::github::ActivityEvent) -> Option<IssueKe
         }
         _ => None,
     }
-}
-
-fn consolidate_actions(events: &[&gh_report::github::ActivityEvent]) -> String {
-    use std::collections::HashSet;
-
-    let mut actions = HashSet::new();
-
-    for event in events {
-        match event.event_type.as_str() {
-            "PullRequestEvent" => {
-                if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
-                    actions.insert(format!("{} PR", action));
-                }
-            }
-            "IssuesEvent" => {
-                if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
-                    actions.insert(format!("{} issue", action));
-                }
-            }
-            "IssueCommentEvent" => {
-                actions.insert("commented".to_string());
-            }
-            "PullRequestReviewCommentEvent" => {
-                actions.insert("reviewed".to_string());
-            }
-            _ => {
-                actions.insert("activity".to_string());
-            }
-        }
-    }
-
-    let mut action_list: Vec<String> = actions.into_iter().collect();
-    action_list.sort();
-    action_list.join(", ")
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -951,5 +928,162 @@ fn format_activity_event(event: &gh_report::github::ActivityEvent) -> String {
             }
         }
         _ => format!("@{} {} event", actor, event.event_type),
+    }
+}
+
+/// Extract title from an event payload for issues or PRs
+fn extract_title_from_event(event: &gh_report::github::ActivityEvent) -> Option<String> {
+    match event.event_type.as_str() {
+        "PullRequestEvent" => {
+            event
+                .payload
+                .get("pull_request")
+                .and_then(|pr| pr.get("title"))
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_string())
+        }
+        "IssuesEvent" | "IssueCommentEvent" => {
+            event
+                .payload
+                .get("issue")
+                .and_then(|issue| issue.get("title"))
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_string())
+        }
+        "PullRequestReviewCommentEvent" | "PullRequestReviewEvent" => {
+            event
+                .payload
+                .get("pull_request")
+                .and_then(|pr| pr.get("title"))
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_string())
+        }
+        _ => None,
+    }
+}
+
+/// Truncate a title to a reasonable length
+fn truncate_title(title: &str, max_length: usize) -> String {
+    if title.len() <= max_length {
+        title.to_string()
+    } else {
+        // Account for the "..." suffix
+        let content_length = max_length.saturating_sub(3);
+        let truncated = &title[..content_length];
+        format!("{}...", truncated)
+    }
+}
+
+/// Group events by action and collect actors for each action
+fn group_events_by_action(events: &[&gh_report::github::ActivityEvent]) -> Vec<(String, Vec<String>)> {
+    use std::collections::HashMap;
+    let mut action_actors: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    
+    for event in events {
+        let action_text = match event.event_type.as_str() {
+            "PullRequestEvent" => {
+                if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
+                    match action {
+                        "opened" => "opened".to_string(),
+                        "closed" => "closed".to_string(),
+                        "reopened" => "reopened".to_string(),
+                        "ready_for_review" => "ready for review".to_string(),
+                        "converted_to_draft" => "converted to draft".to_string(),
+                        _ => action.to_string(),
+                    }
+                } else {
+                    "updated".to_string()
+                }
+            }
+            "IssuesEvent" => {
+                if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
+                    match action {
+                        "opened" => "opened".to_string(),
+                        "closed" => "closed".to_string(),
+                        "reopened" => "reopened".to_string(),
+                        _ => action.to_string(),
+                    }
+                } else {
+                    "updated".to_string()
+                }
+            }
+            "IssueCommentEvent" => "commented".to_string(),
+            "PullRequestReviewEvent" => {
+                if let Some(action) = event.payload.get("action").and_then(|a| a.as_str()) {
+                    match action {
+                        "submitted" => "reviewed".to_string(),
+                        _ => "review activity".to_string(),
+                    }
+                } else {
+                    "reviewed".to_string()
+                }
+            }
+            "PullRequestReviewCommentEvent" => "review commented".to_string(),
+            _ => event.event_type.clone(),
+        };
+        
+        let actor = format!("@{}", event.actor.login);
+        action_actors.entry(action_text).or_insert_with(std::collections::HashSet::new).insert(actor);
+    }
+    
+    let mut result: Vec<(String, Vec<String>)> = action_actors
+        .into_iter()
+        .map(|(action, actors)| {
+            let mut actor_list: Vec<String> = actors.into_iter().collect();
+            actor_list.sort();
+            (action, actor_list)
+        })
+        .collect();
+    
+    // Sort actions by a reasonable order
+    result.sort_by(|a, b| {
+        let order_a = action_priority(&a.0);
+        let order_b = action_priority(&b.0);
+        order_a.cmp(&order_b).then_with(|| a.0.cmp(&b.0))
+    });
+    
+    result
+}
+
+/// Get priority order for actions (lower number = higher priority)
+fn action_priority(action: &str) -> u8 {
+    match action {
+        "opened" => 1,
+        "closed" => 2,
+        "reopened" => 3,
+        "reviewed" => 4,
+        "commented" => 5,
+        "review commented" => 6,
+        _ => 10,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_title() {
+        // Test short title
+        let short = "Short title";
+        assert_eq!(truncate_title(short, 50), "Short title");
+
+        // Test long title  
+        let long = "This is a very long title that should be truncated because it exceeds the maximum length";
+        let truncated = truncate_title(long, 20);
+        // 20 total chars: "This is a very lo" (17 chars) + "..." (3 chars) = 20 total
+        assert_eq!(truncated, "This is a very lo...");
+        assert_eq!(truncated.len(), 20);
+
+        // Test edge case - exactly at limit
+        let exact = "Exactly twenty chars";
+        assert_eq!(truncate_title(exact, 20), "Exactly twenty chars");
+    }
+
+    #[test]
+    fn test_action_priority() {
+        assert!(action_priority("opened") < action_priority("closed"));
+        assert!(action_priority("closed") < action_priority("commented"));
+        assert!(action_priority("reviewed") < action_priority("unknown"));
     }
 }
