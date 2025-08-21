@@ -15,7 +15,7 @@ pub fn calculate_activity_score(metrics: &ActivityMetrics, weights: &ActivityWei
     let pr_score = metrics.prs * weights.prs;
     let issue_score = metrics.issues * weights.issues;
     let comment_score = metrics.comments * weights.comments;
-    
+
     commit_score + pr_score + issue_score + comment_score
 }
 
@@ -46,7 +46,7 @@ impl ActivityLevel {
             ActivityLevel::VeryHigh => "Very High",
         }
     }
-    
+
     pub fn emoji(&self) -> &'static str {
         match self {
             ActivityLevel::Low => "🟢",
@@ -60,7 +60,7 @@ impl ActivityLevel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_activity_scoring() {
         let metrics = ActivityMetrics {
@@ -69,22 +69,22 @@ mod tests {
             issues: 2,
             comments: 10,
         };
-        
+
         let weights = ActivityWeights {
             commits: 4,
             prs: 3,
             issues: 2,
             comments: 1,
         };
-        
+
         let score = calculate_activity_score(&metrics, &weights);
         // 5*4 + 3*3 + 2*2 + 10*1 = 20 + 9 + 4 + 10 = 43
         assert_eq!(score, 43);
-        
+
         let level = categorize_activity_level(score);
         assert_eq!(level, ActivityLevel::High);
     }
-    
+
     #[test]
     fn test_activity_level_categorization() {
         assert_eq!(categorize_activity_level(5), ActivityLevel::Low);
@@ -92,7 +92,7 @@ mod tests {
         assert_eq!(categorize_activity_level(45), ActivityLevel::High);
         assert_eq!(categorize_activity_level(75), ActivityLevel::VeryHigh);
     }
-    
+
     #[test]
     fn test_activity_level_display() {
         assert_eq!(ActivityLevel::Low.as_str(), "Low");

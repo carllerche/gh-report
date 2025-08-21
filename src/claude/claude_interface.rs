@@ -1,7 +1,7 @@
+use super::{ClaudeCLI, ClaudeClient, MessagesRequest, MessagesResponse};
+use crate::config::{ClaudeBackend, ClaudeConfig};
 use anyhow::{Context, Result};
 use tracing::{info, warn};
-use crate::config::{ClaudeConfig, ClaudeBackend};
-use super::{ClaudeClient, ClaudeCLI, MessagesRequest, MessagesResponse};
 
 /// Unified interface for Claude (API or CLI)
 pub enum ClaudeInterface {
@@ -63,7 +63,7 @@ impl ClaudeInterface {
                         }
                     }
                 }
-                
+
                 // Fall back to API
                 match std::env::var("ANTHROPIC_API_KEY") {
                     Ok(_) => match ClaudeClient::new() {
@@ -84,27 +84,31 @@ impl ClaudeInterface {
             }
         }
     }
-    
+
     /// Send a messages request
     pub fn messages(&self, request: MessagesRequest) -> Result<MessagesResponse> {
         match self {
             ClaudeInterface::Api(client) => client.messages(request),
             ClaudeInterface::Cli(client) => {
                 // Convert MessagesRequest to CLI format
-                let prompt = request.messages.iter()
+                let prompt = request
+                    .messages
+                    .iter()
                     .map(|m| m.content.clone())
                     .collect::<Vec<_>>()
                     .join("\n\n");
-                
+
                 let system = request.system.as_deref();
-                
+
                 // Send to CLI
                 let response_text = client.send_message(&prompt, system)?;
-                
+
                 // Convert response to MessagesResponse format
                 Ok(MessagesResponse {
                     id: "cli_response".to_string(),
-                    content: vec![crate::claude::Content::Text { text: response_text }],
+                    content: vec![crate::claude::Content::Text {
+                        text: response_text,
+                    }],
                     model: request.model,
                     stop_reason: Some("end_turn".to_string()),
                     usage: crate::claude::Usage {

@@ -22,17 +22,17 @@ impl MessagesRequest {
             temperature: None,
         }
     }
-    
+
     pub fn with_system(mut self, system: String) -> Self {
         self.system = Some(system);
         self
     }
-    
+
     pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = max_tokens;
         self
     }
-    
+
     pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = Some(temperature);
         self
@@ -53,7 +53,7 @@ impl Message {
             content,
         }
     }
-    
+
     pub fn assistant(content: String) -> Self {
         Message {
             role: MessageRole::Assistant,
@@ -144,7 +144,7 @@ impl ImportanceLevel {
             ImportanceLevel::Low => config.secondary_model.clone(),
         }
     }
-    
+
     pub fn max_tokens(&self) -> u32 {
         match self {
             ImportanceLevel::High => 8000,
@@ -157,7 +157,7 @@ impl ImportanceLevel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_messages_request_builder() {
         let request = MessagesRequest::new(
@@ -167,19 +167,22 @@ mod tests {
         .with_system("You are a helpful assistant".to_string())
         .with_max_tokens(1000)
         .with_temperature(0.7);
-        
+
         assert_eq!(request.model, "claude-3-5-sonnet-20241022");
         assert_eq!(request.max_tokens, 1000);
         assert_eq!(request.temperature, Some(0.7));
-        assert_eq!(request.system, Some("You are a helpful assistant".to_string()));
+        assert_eq!(
+            request.system,
+            Some("You are a helpful assistant".to_string())
+        );
     }
-    
+
     #[test]
     fn test_message_constructors() {
         let user_msg = Message::user("User message".to_string());
         assert!(matches!(user_msg.role, MessageRole::User));
         assert_eq!(user_msg.content, "User message");
-        
+
         let assistant_msg = Message::assistant("Assistant message".to_string());
         assert!(matches!(assistant_msg.role, MessageRole::Assistant));
         assert_eq!(assistant_msg.content, "Assistant message");

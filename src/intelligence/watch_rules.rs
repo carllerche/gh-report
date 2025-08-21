@@ -12,15 +12,15 @@ impl WatchRuleEngine {
             rules: rules.clone(),
         }
     }
-    
+
     /// Check if an issue matches any watch rules
     pub fn check_issue(&self, issue: &Issue, active_labels: &[String]) -> Vec<MatchedRule> {
         let mut matches = Vec::new();
-        
+
         // Build searchable text from issue
         let searchable_text = self.build_searchable_text(issue);
         let searchable_lower = searchable_text.to_lowercase();
-        
+
         // Check each active label's watch rules
         for label in active_labels {
             if let Some(patterns) = self.rules.get(label) {
@@ -33,17 +33,17 @@ impl WatchRuleEngine {
                     });
                     continue;
                 }
-                
+
                 // Check each pattern
                 for pattern in patterns {
                     let pattern_lower = pattern.to_lowercase();
-                    
+
                     // Handle special patterns
                     if pattern.starts_with("@{") && pattern.ends_with("}") {
                         // Username mention pattern - skip for now
                         continue;
                     }
-                    
+
                     // Simple substring matching (could be enhanced with regex)
                     if searchable_lower.contains(&pattern_lower) {
                         matches.push(MatchedRule {
@@ -56,11 +56,11 @@ impl WatchRuleEngine {
                 }
             }
         }
-        
+
         // Check for label-based matches
         for gh_label in &issue.labels {
             let label_lower = gh_label.name.to_lowercase();
-            
+
             // Check security labels
             if label_lower.contains("security") || label_lower.contains("vulnerability") {
                 if !matches.iter().any(|m| m.rule_type == "security_issues") {
@@ -71,7 +71,7 @@ impl WatchRuleEngine {
                     });
                 }
             }
-            
+
             // Check breaking change labels
             if label_lower.contains("breaking") || label_lower.contains("major") {
                 if !matches.iter().any(|m| m.rule_type == "breaking_changes") {
@@ -83,38 +83,38 @@ impl WatchRuleEngine {
                 }
             }
         }
-        
+
         matches
     }
-    
+
     /// Build searchable text from an issue
     fn build_searchable_text(&self, issue: &Issue) -> String {
         let mut text = String::new();
-        
+
         // Add title
         text.push_str(&issue.title);
         text.push(' ');
-        
+
         // Add body if present
         if let Some(body) = &issue.body {
             text.push_str(body);
             text.push(' ');
         }
-        
+
         // Add labels
         for label in &issue.labels {
             text.push_str(&label.name);
             text.push(' ');
         }
-        
+
         text
     }
-    
+
     /// Check if a repository matches any watch rules
     pub fn check_repo_patterns(&self, repo_name: &str, patterns: &[String]) -> Vec<MatchedRule> {
         let mut matches = Vec::new();
         let repo_lower = repo_name.to_lowercase();
-        
+
         for pattern in patterns {
             // Check each pattern against repo name
             for (rule_type, rule_patterns) in &self.rules {
@@ -126,7 +126,7 @@ impl WatchRuleEngine {
                     });
                 }
             }
-            
+
             // Direct pattern matching
             if repo_lower.contains(&pattern.to_lowercase()) {
                 matches.push(MatchedRule {
@@ -136,7 +136,7 @@ impl WatchRuleEngine {
                 });
             }
         }
-        
+
         matches
     }
 }
@@ -152,9 +152,9 @@ pub struct MatchedRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::github::{Author, IssueState, CommentCount, Label};
+    use crate::github::{Author, CommentCount, IssueState, Label};
     use jiff::Timestamp;
-    
+
     #[test]
     fn test_watch_rule_matching() {
         let mut rules = HashMap::new();
@@ -166,9 +166,9 @@ mod tests {
             "breaking_changes".to_string(),
             vec!["BREAKING".to_string(), "migration".to_string()],
         );
-        
+
         let engine = WatchRuleEngine::new(&rules);
-        
+
         let issue = Issue {
             number: 42,
             title: "Security vulnerability in auth module".to_string(),
@@ -185,19 +185,19 @@ mod tests {
             comments: CommentCount { total_count: 0 },
             is_pull_request: false,
         };
-        
+
         let matches = engine.check_issue(&issue, &["security_issues".to_string()]);
-        
+
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].rule_type, "security_issues");
         assert_eq!(matches[0].matched_text, "security");
     }
-    
+
     #[test]
     fn test_label_based_matching() {
         let rules = HashMap::new();
         let engine = WatchRuleEngine::new(&rules);
-        
+
         let issue = Issue {
             number: 100,
             title: "Update API".to_string(),
@@ -209,33 +209,31 @@ mod tests {
             },
             created_at: Timestamp::now(),
             updated_at: Timestamp::now(),
-            labels: vec![
-                Label {
-                    name: "breaking-change".to_string(),
-                    color: Some("red".to_string()),
-                    description: None,
-                },
-            ],
+            labels: vec![Label {
+                name: "breaking-change".to_string(),
+                color: Some("red".to_string()),
+                description: None,
+            }],
             url: "https://github.com/test/repo/issues/100".to_string(),
             comments: CommentCount { total_count: 0 },
             is_pull_request: false,
         };
-        
+
         let matches = engine.check_issue(&issue, &[]);
-        
+
         // Should match based on label
         assert!(!matches.is_empty());
         assert_eq!(matches[0].rule_type, "breaking_changes");
         assert_eq!(matches[0].confidence, 0.9);
     }
-    
+
     #[test]
     fn test_all_activity_rule() {
         let mut rules = HashMap::new();
         rules.insert("all_activity".to_string(), vec![]);
-        
+
         let engine = WatchRuleEngine::new(&rules);
-        
+
         let issue = Issue {
             number: 1,
             title: "Random issue".to_string(),
@@ -252,9 +250,9 @@ mod tests {
             comments: CommentCount { total_count: 0 },
             is_pull_request: false,
         };
-        
+
         let matches = engine.check_issue(&issue, &["all_activity".to_string()]);
-        
+
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].rule_type, "all_activity");
     }

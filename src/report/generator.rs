@@ -1,17 +1,19 @@
 use anyhow::{Context, Result};
 use jiff::{Timestamp, ToSpan};
-use tracing::{info, warn};
 use std::collections::BTreeMap;
+use tracing::{info, warn};
 
+use super::{group_activities_by_repo, Report, ReportTemplate};
+use crate::cache::{generate_cache_key, CacheManager};
+use crate::claude::prompts::{generate_title_prompt, summarize_activities_prompt, system_prompt};
+use crate::claude::{
+    estimate_cost, estimate_tokens, resolve_model_alias, ClaudeInterface, Message, MessagesRequest,
+};
 use crate::config::Config;
 use crate::github::{GitHubClient, Issue};
-use crate::state::State;
-use crate::claude::{ClaudeInterface, MessagesRequest, Message, resolve_model_alias, estimate_tokens, estimate_cost};
-use crate::claude::prompts::{system_prompt, summarize_activities_prompt, generate_title_prompt};
 use crate::intelligence::IntelligentAnalyzer;
-use crate::cache::{CacheManager, generate_cache_key};
 use crate::progress::ProgressReporter;
-use super::{Report, ReportTemplate, group_activities_by_repo};
+use crate::state::State;
 
 pub struct ReportGenerator<'a> {
     github_client: GitHubClient,
@@ -31,19 +33,19 @@ impl<'a> ReportGenerator<'a> {
                 None
             }
         };
-        
+
         // Initialize cache manager if caching is enabled
         let cache_manager = if config.cache.enabled {
             let cache_dir = dirs::cache_dir()
                 .unwrap_or_else(|| std::path::PathBuf::from("."))
                 .join("gh-report");
-            
+
             let manager = CacheManager::new(
                 cache_dir,
                 config.cache.ttl_hours,
                 config.cache.compression_enabled,
             );
-            
+
             // Initialize cache directories
             if let Err(e) = manager.initialize() {
                 warn!("Failed to initialize cache: {}", e);
@@ -55,11 +57,11 @@ impl<'a> ReportGenerator<'a> {
         } else {
             None
         };
-        
-        ReportGenerator { 
-            github_client, 
+
+        ReportGenerator {
+            github_client,
             claude_client,
-            config, 
+            config,
             state,
             cache_manager,
         }
@@ -68,79 +70,83 @@ impl<'a> ReportGenerator<'a> {
     pub fn generate(&self, lookback_days: u32) -> Result<Report> {
         self.generate_with_progress(lookback_days, false)
     }
-    
+
     pub fn generate_with_progress(&self, lookback_days: u32, dry_run: bool) -> Result<Report> {
         let mut progress = ProgressReporter::new();
         let now = Timestamp::now();
         let since = now - (lookback_days as i64 * 24).hours();
-        
+
         if !progress.is_interactive() {
             info!("Generating report for the last {} days", lookback_days);
-            info!("Fetching activity since {}", since.strftime("%Y-%m-%d %H:%M"));
+            info!(
+                "Fetching activity since {}",
+                since.strftime("%Y-%m-%d %H:%M")
+            );
         }
-        
+
         if dry_run {
             info!("DRY RUN: Showing what would be fetched without generating report");
         }
-        
+
         // Check if we have any repositories to report on
         let total_repos = self.state.tracked_repos.len() + self.config.repos.len();
         if total_repos == 0 {
             warn!("No repositories configured or tracked - report will be empty");
-            warn!("Config repos: {}, State tracked repos: {}", 
-                self.config.repos.len(), 
-                self.state.tracked_repos.len());
+            warn!(
+                "Config repos: {}, State tracked repos: {}",
+                self.config.repos.len(),
+                self.state.tracked_repos.len()
+            );
             warn!("Run 'gh-report init' to discover repositories or add them to the config file");
         }
 
         let mut all_issues = Vec::new();
         let mut errors = Vec::new();
-        
+
         // Collect all repositories to process (from both state and config)
         let mut repos_to_process = Vec::new();
-        
+
         // Add tracked repos from state
         for (repo_name, _) in &self.state.tracked_repos {
             repos_to_process.push(repo_name.clone());
         }
-        
+
         // Add repos from config
         for repo_config in &self.config.repos {
             if !repos_to_process.contains(&repo_config.name) {
                 repos_to_process.push(repo_config.name.clone());
             }
         }
-        
+
         // Start main progress bar
         let total_repos = repos_to_process.len();
         let _main_pb = progress.start_report_generation(total_repos);
 
         for repo_name in &repos_to_process {
             let repo_pb = progress.start_repo_fetch(repo_name);
-            
+
             // Try cache first if available
-            let cache_key = generate_cache_key(&[
-                "issues",
-                repo_name,
-                &since.as_millisecond().to_string(),
-            ]);
-            
+            let cache_key =
+                generate_cache_key(&["issues", repo_name, &since.as_millisecond().to_string()]);
+
             let cached_issues = if let Some(ref cache) = self.cache_manager {
                 match cache.get_github_response(&cache_key) {
-                    Ok(Some(data)) => {
-                        match serde_json::from_slice::<Vec<Issue>>(&data) {
-                            Ok(issues) => {
-                                if !progress.is_interactive() {
-                                    info!("  Using cached data for {} ({} issues)", repo_name, issues.len());
-                                }
-                                Some(issues)
+                    Ok(Some(data)) => match serde_json::from_slice::<Vec<Issue>>(&data) {
+                        Ok(issues) => {
+                            if !progress.is_interactive() {
+                                info!(
+                                    "  Using cached data for {} ({} issues)",
+                                    repo_name,
+                                    issues.len()
+                                );
                             }
-                            Err(e) => {
-                                warn!("Failed to deserialize cached issues: {}", e);
-                                None
-                            }
+                            Some(issues)
                         }
-                    }
+                        Err(e) => {
+                            warn!("Failed to deserialize cached issues: {}", e);
+                            None
+                        }
+                    },
                     Ok(None) => None,
                     Err(e) => {
                         warn!("Cache read error: {}", e);
@@ -150,7 +156,7 @@ impl<'a> ReportGenerator<'a> {
             } else {
                 None
             };
-            
+
             let issues = if let Some(cached) = cached_issues {
                 cached
             } else {
@@ -158,11 +164,11 @@ impl<'a> ReportGenerator<'a> {
                 match self.github_client.fetch_issues(repo_name, Some(since)) {
                     Ok(mut issues) => {
                         issues.retain(|issue| issue.updated_at >= since);
-                        
+
                         if !progress.is_interactive() {
                             info!("  Found {} active issues/PRs", issues.len());
                         }
-                        
+
                         // Cache the result (unless dry run)
                         if !dry_run {
                             if let Some(ref cache) = self.cache_manager {
@@ -172,7 +178,7 @@ impl<'a> ReportGenerator<'a> {
                                 }
                             }
                         }
-                        
+
                         issues
                     }
                     Err(e) => {
@@ -184,7 +190,7 @@ impl<'a> ReportGenerator<'a> {
                     }
                 }
             };
-            
+
             progress.complete_repo_fetch(repo_pb.as_ref(), repo_name, issues.len());
             all_issues.extend(issues);
         }
@@ -193,7 +199,7 @@ impl<'a> ReportGenerator<'a> {
         let include_mentions: Vec<String> = vec![];
         if !include_mentions.is_empty() {
             info!("Fetching mentions for users: {:?}", include_mentions);
-            
+
             for username in &include_mentions {
                 match self.fetch_user_mentions(username, since) {
                     Ok(mut mentions) => {
@@ -202,7 +208,10 @@ impl<'a> ReportGenerator<'a> {
                     }
                     Err(e) => {
                         warn!("Failed to fetch mentions for {}: {}", username, e);
-                        errors.push(format!("⚠️ Could not fetch mentions for {}: {}", username, e));
+                        errors.push(format!(
+                            "⚠️ Could not fetch mentions for {}: {}",
+                            username, e
+                        ));
                     }
                 }
             }
@@ -214,16 +223,18 @@ impl<'a> ReportGenerator<'a> {
             info!("  Total repositories: {}", self.state.tracked_repos.len());
             info!("  Total items found: {}", all_issues.len());
             info!("  Errors encountered: {}", errors.len());
-            
+
             let activities = group_activities_by_repo(all_issues);
             for (repo, activity) in &activities {
-                let total = activity.new_issues.len() + activity.updated_issues.len() + 
-                           activity.new_prs.len() + activity.updated_prs.len();
+                let total = activity.new_issues.len()
+                    + activity.updated_issues.len()
+                    + activity.new_prs.len()
+                    + activity.updated_prs.len();
                 if total > 0 {
                     info!("  {}: {} items", repo, total);
                 }
             }
-            
+
             // Return empty report for dry run
             return Ok(Report {
                 title: "Dry Run - No Report Generated".to_string(),
@@ -232,18 +243,20 @@ impl<'a> ReportGenerator<'a> {
                 estimated_cost: 0.0,
             });
         }
-        
+
         // Group activities and run analysis for actual report generation
         let activities = group_activities_by_repo(all_issues);
-        
+
         // Apply intelligent analysis
         let analyzer = IntelligentAnalyzer::new(&self.config);
         let analysis = analyzer.analyze(&activities);
-        
-        info!("Intelligent analysis: {} prioritized items, {} action items", 
+
+        info!(
+            "Intelligent analysis: {} prioritized items, {} action items",
             analysis.prioritized_issues.len(),
-            analysis.action_items.len());
-        
+            analysis.action_items.len()
+        );
+
         // Generate AI summary if Claude is available
         let (ai_summary, ai_title, estimated_cost) = if let Some(claude) = &self.claude_client {
             let ai_pb = progress.start_ai_summary();
@@ -266,7 +279,7 @@ impl<'a> ReportGenerator<'a> {
         } else {
             (None, None, 0.0)
         };
-        
+
         let template = ReportTemplate::new(&self.config);
         let content = template.render_with_intelligence(
             &activities,
@@ -288,10 +301,11 @@ impl<'a> ReportGenerator<'a> {
     }
 
     fn fetch_user_mentions(&self, _username: &str, since: Timestamp) -> Result<Vec<Issue>> {
-        self.github_client.fetch_mentions(since)
+        self.github_client
+            .fetch_mentions(since)
             .context("Failed to fetch user mentions")
     }
-    
+
     fn generate_ai_summary(
         &self,
         claude: &ClaudeInterface,
@@ -299,7 +313,7 @@ impl<'a> ReportGenerator<'a> {
     ) -> Result<(String, String, f32)> {
         self.generate_ai_summary_with_context(claude, activities, None)
     }
-    
+
     fn generate_ai_summary_with_context(
         &self,
         claude: &ClaudeInterface,
@@ -308,20 +322,20 @@ impl<'a> ReportGenerator<'a> {
     ) -> Result<(String, String, f32)> {
         // Generate the prompt
         let prompt = summarize_activities_prompt(activities, context);
-        
+
         // Generate cache key for this prompt
         let prompt_hash = {
-            use sha2::{Sha256, Digest};
+            use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
             hasher.update(prompt.as_bytes());
             format!("{:x}", hasher.finalize())
         };
-        
+
         let cache_key = generate_cache_key(&[
             "claude_summary",
             &prompt_hash[..16], // Use first 16 chars of hash
         ]);
-        
+
         // Try to get from cache
         if let Some(ref cache) = self.cache_manager {
             if let Ok(Some(cached)) = cache.get_claude_response(&cache_key) {
@@ -336,46 +350,49 @@ impl<'a> ReportGenerator<'a> {
                 }
             }
         }
-        
+
         // Estimate tokens
         let input_tokens = estimate_tokens(&prompt) + estimate_tokens(&system_prompt());
-        
+
         // Create request
         let model = resolve_model_alias(&self.config.claude.primary_model);
-        let request = MessagesRequest::new(
-            model.clone(),
-            vec![Message::user(prompt)],
-        )
-        .with_system(system_prompt())
-        .with_max_tokens(4000);
-        
+        let request = MessagesRequest::new(model.clone(), vec![Message::user(prompt)])
+            .with_system(system_prompt())
+            .with_max_tokens(4000);
+
         // Send request
         let response = match claude.messages(request) {
             Ok(resp) => resp,
             Err(e) => {
                 // Log the actual error for debugging
                 warn!("Claude API error details: {:#}", e);
-                
+
                 let error_str = e.to_string();
-                
+
                 // Provide helpful error messages based on the error type
                 if error_str.contains("ANTHROPIC_API_KEY") {
                     return Err(anyhow::anyhow!("ANTHROPIC_API_KEY environment variable is not set. Please set it to use AI summarization."));
-                } else if error_str.contains("invalid x-api-key") || error_str.contains("authentication_error") {
+                } else if error_str.contains("invalid x-api-key")
+                    || error_str.contains("authentication_error")
+                {
                     return Err(anyhow::anyhow!("Invalid ANTHROPIC_API_KEY. Please check that your API key is correct and active."));
                 } else if error_str.contains("rate_limit") {
-                    return Err(anyhow::anyhow!("Claude API rate limit exceeded. Please try again later."));
+                    return Err(anyhow::anyhow!(
+                        "Claude API rate limit exceeded. Please try again later."
+                    ));
                 } else if error_str.contains("overloaded") {
-                    return Err(anyhow::anyhow!("Claude API is currently overloaded. Please try again in a few moments."));
+                    return Err(anyhow::anyhow!(
+                        "Claude API is currently overloaded. Please try again in a few moments."
+                    ));
                 }
-                
+
                 return Err(e).context("Failed to get summary from Claude");
             }
         };
-        
+
         let summary = response.get_text();
         let output_tokens = response.usage.output_tokens;
-        
+
         // Generate title from summary
         let title_prompt = generate_title_prompt(&summary);
         let title_request = MessagesRequest::new(
@@ -383,12 +400,13 @@ impl<'a> ReportGenerator<'a> {
             vec![Message::user(title_prompt)],
         )
         .with_max_tokens(100);
-        
-        let title_response = claude.messages(title_request)
+
+        let title_response = claude
+            .messages(title_request)
             .context("Failed to generate title from Claude")?;
-        
+
         let title = title_response.get_text().trim().to_string();
-        
+
         // Calculate total cost
         let summary_cost = estimate_cost(&model, input_tokens, output_tokens);
         let title_cost = estimate_cost(
@@ -396,9 +414,9 @@ impl<'a> ReportGenerator<'a> {
             estimate_tokens(&generate_title_prompt(&summary)),
             title_response.usage.output_tokens,
         );
-        
+
         let total_cost = summary_cost + title_cost;
-        
+
         // Cache the result
         if let Some(ref cache) = self.cache_manager {
             let cached_data = format!("{}\n---\n{}\n---\n{}", title, summary, total_cost);
@@ -406,21 +424,32 @@ impl<'a> ReportGenerator<'a> {
                 warn!("Failed to cache Claude response: {}", e);
             }
         }
-        
+
         Ok((summary, title, total_cost))
     }
 
-    fn generate_title(&self, since: Timestamp, now: Timestamp, activities: &BTreeMap<String, crate::github::RepoActivity>) -> String {
-        let date_range = if since.strftime("%Y-%m-%d").to_string() == now.strftime("%Y-%m-%d").to_string() {
-            format!("Daily Report - {}", now.strftime("%Y-%m-%d"))
-        } else {
-            format!("Report - {} to {}", 
-                since.strftime("%Y-%m-%d"),
-                now.strftime("%Y-%m-%d"))
-        };
+    fn generate_title(
+        &self,
+        since: Timestamp,
+        now: Timestamp,
+        activities: &BTreeMap<String, crate::github::RepoActivity>,
+    ) -> String {
+        let date_range =
+            if since.strftime("%Y-%m-%d").to_string() == now.strftime("%Y-%m-%d").to_string() {
+                format!("Daily Report - {}", now.strftime("%Y-%m-%d"))
+            } else {
+                format!(
+                    "Report - {} to {}",
+                    since.strftime("%Y-%m-%d"),
+                    now.strftime("%Y-%m-%d")
+                )
+            };
 
-        let total_items: usize = activities.values()
-            .map(|a| a.new_issues.len() + a.updated_issues.len() + a.new_prs.len() + a.updated_prs.len())
+        let total_items: usize = activities
+            .values()
+            .map(|a| {
+                a.new_issues.len() + a.updated_issues.len() + a.new_prs.len() + a.updated_prs.len()
+            })
             .sum();
 
         if total_items > 0 {
@@ -442,9 +471,9 @@ mod tests {
         let github_client = GitHubClient::Mock(mock);
         let config = Config::default();
         let state = State::default();
-        
+
         let generator = ReportGenerator::new(github_client, &config, &state);
-        
+
         // Generate should work even without Claude client
         let result = generator.generate(1);
         assert!(result.is_ok());

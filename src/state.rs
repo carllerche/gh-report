@@ -42,8 +42,7 @@ impl State {
                 .with_context(|| format!("Failed to create directory {:?}", parent))?;
         }
 
-        let contents = serde_json::to_string_pretty(self)
-            .context("Failed to serialize state")?;
+        let contents = serde_json::to_string_pretty(self).context("Failed to serialize state")?;
 
         std::fs::write(path, contents)
             .with_context(|| format!("Failed to write state to {:?}", path))?;
@@ -63,9 +62,8 @@ impl State {
                 let now = Timestamp::now();
                 // Convert days to hours for timestamp arithmetic
                 let hours = (max_lookback_days as i64) * 24;
-                let max_lookback = now.saturating_sub(hours.hours())
-                    .expect("valid timestamp");
-                
+                let max_lookback = now.saturating_sub(hours.hours()).expect("valid timestamp");
+
                 // Use the more recent of last_run or max_lookback
                 if last > max_lookback {
                     last
@@ -94,7 +92,7 @@ impl State {
             },
         );
     }
-    
+
     /// Check if a repository should be auto-removed due to inactivity
     pub fn should_remove_repo(&self, repo_name: &str, threshold_days: u32) -> bool {
         if let Some(repo_state) = self.tracked_repos.get(repo_name) {
@@ -190,13 +188,15 @@ mod tests {
     #[test]
     fn test_cleanup_inactive_repos() {
         let mut state = State::default();
-        
+
         // Add repos with different last_seen times
         let now = Timestamp::now();
         state.tracked_repos.insert(
             "old/repo".to_string(),
             RepoState {
-                last_seen: now.saturating_sub((40 * 24).hours()).expect("valid timestamp"),
+                last_seen: now
+                    .saturating_sub((40 * 24).hours())
+                    .expect("valid timestamp"),
                 activity_score: 10,
                 auto_tracked: true,
             },
@@ -204,7 +204,9 @@ mod tests {
         state.tracked_repos.insert(
             "recent/repo".to_string(),
             RepoState {
-                last_seen: now.saturating_sub((5 * 24).hours()).expect("valid timestamp"),
+                last_seen: now
+                    .saturating_sub((5 * 24).hours())
+                    .expect("valid timestamp"),
                 activity_score: 20,
                 auto_tracked: true,
             },
@@ -212,14 +214,16 @@ mod tests {
         state.tracked_repos.insert(
             "manual/repo".to_string(),
             RepoState {
-                last_seen: now.saturating_sub((60 * 24).hours()).expect("valid timestamp"),
+                last_seen: now
+                    .saturating_sub((60 * 24).hours())
+                    .expect("valid timestamp"),
                 activity_score: 5,
                 auto_tracked: false, // Manual repos are never removed
             },
         );
 
         let removed = state.cleanup_inactive_repos(30);
-        
+
         assert_eq!(removed.len(), 1);
         assert_eq!(removed[0], "old/repo");
         assert_eq!(state.tracked_repos.len(), 2);

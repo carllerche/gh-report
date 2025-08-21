@@ -1,17 +1,18 @@
 //! Test utilities for gh-report
 #![cfg(test)]
 
-use crate::github::{GitHubClient, MockGitHub, Issue, IssueState, Author, CommentCount, Label};
+use crate::github::{Author, CommentCount, GitHubClient, Issue, IssueState, Label, MockGitHub};
 use jiff::Timestamp;
 
 /// Create a mock GitHub client with test data
 pub fn create_test_github_client() -> GitHubClient {
     let mut mock = MockGitHub::new();
-    
+
     // Add some test issues
-    mock.issues.push(create_test_issue(1, "Test Issue 1", false));
+    mock.issues
+        .push(create_test_issue(1, "Test Issue 1", false));
     mock.issues.push(create_test_issue(2, "Test PR 1", true));
-    
+
     GitHubClient::Mock(mock)
 }
 
@@ -29,8 +30,11 @@ pub fn create_test_issue(number: u32, title: &str, is_pr: bool) -> Issue {
         created_at: Timestamp::now(),
         updated_at: Timestamp::now(),
         labels: vec![],
-        url: format!("https://github.com/test/repo/{}/{}", 
-            if is_pr { "pull" } else { "issues" }, number),
+        url: format!(
+            "https://github.com/test/repo/{}/{}",
+            if is_pr { "pull" } else { "issues" },
+            number
+        ),
         comments: CommentCount { total_count: 0 },
         is_pull_request: is_pr,
     }
@@ -39,10 +43,13 @@ pub fn create_test_issue(number: u32, title: &str, is_pr: bool) -> Issue {
 /// Create a test issue with labels
 pub fn create_test_issue_with_labels(number: u32, title: &str, labels: Vec<&str>) -> Issue {
     let mut issue = create_test_issue(number, title, false);
-    issue.labels = labels.into_iter().map(|name| Label {
-        name: name.to_string(),
-        color: Some("blue".to_string()),
-        description: None,
-    }).collect();
+    issue.labels = labels
+        .into_iter()
+        .map(|name| Label {
+            name: name.to_string(),
+            color: Some("blue".to_string()),
+            description: None,
+        })
+        .collect();
     issue
 }

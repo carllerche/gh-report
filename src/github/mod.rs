@@ -1,11 +1,13 @@
 use anyhow::{anyhow, Context, Result};
 use std::process::Command;
 
-mod models;
 mod client;
+mod models;
+pub mod reference;
 
-pub use models::*;
 pub use client::GitHubClient;
+pub use models::*;
+pub use reference::{parse_issue_reference, IssueReference};
 
 #[cfg(test)]
 pub use client::MockGitHub;
@@ -26,7 +28,7 @@ pub fn check_gh_version() -> Result<String> {
 
     let version_output = String::from_utf8_lossy(&output.stdout);
     let version = parse_gh_version(&version_output)?;
-    
+
     if !version_meets_minimum(&version, MIN_GH_VERSION)? {
         return Err(anyhow!(
             "gh version {} is too old. Minimum required: {}",
@@ -46,7 +48,7 @@ fn parse_gh_version(output: &str) -> Result<String> {
         .next()
         .and_then(|line| line.split_whitespace().nth(2))
         .ok_or_else(|| anyhow!("Could not parse gh version from output"))?;
-    
+
     Ok(version.to_string())
 }
 
@@ -54,12 +56,12 @@ fn parse_gh_version(output: &str) -> Result<String> {
 fn version_meets_minimum(version: &str, minimum: &str) -> Result<bool> {
     let version_parts = parse_version_parts(version)?;
     let minimum_parts = parse_version_parts(minimum)?;
-    
+
     // Compare major.minor.patch
     for i in 0..3 {
         let v = version_parts.get(i).unwrap_or(&0);
         let m = minimum_parts.get(i).unwrap_or(&0);
-        
+
         if v > m {
             return Ok(true);
         } else if v < m {
@@ -67,7 +69,7 @@ fn version_meets_minimum(version: &str, minimum: &str) -> Result<bool> {
         }
         // If equal, continue to next part
     }
-    
+
     Ok(true) // Versions are equal
 }
 

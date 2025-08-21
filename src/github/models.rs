@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use jiff::Timestamp;
+use serde::{Deserialize, Serialize};
 
 /// Represents a GitHub issue or pull request
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -203,7 +203,7 @@ impl From<RestIssue> for Issue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_issue_serialization() {
         let issue = Issue {
@@ -226,40 +226,40 @@ mod tests {
             comments: CommentCount { total_count: 5 },
             is_pull_request: false,
         };
-        
+
         // Test serialization
         let json = serde_json::to_string(&issue).unwrap();
         assert!(json.contains("\"number\":42"));
         assert!(json.contains("\"title\":\"Test Issue\""));
-        
+
         // Test deserialization
         let issue2: Issue = serde_json::from_str(&json).unwrap();
         assert_eq!(issue.number, issue2.number);
         assert_eq!(issue.title, issue2.title);
     }
-    
+
     #[test]
     fn test_issue_state() {
         let states = vec![IssueState::Open, IssueState::Closed, IssueState::Merged];
-        
+
         for state in states {
             let json = serde_json::to_string(&state).unwrap();
             let state2: IssueState = serde_json::from_str(&json).unwrap();
             assert_eq!(state, state2);
         }
     }
-    
+
     #[test]
     fn test_repo_activity_default() {
         let activity = RepoActivity::default();
-        
+
         assert!(activity.new_issues.is_empty());
         assert!(activity.updated_issues.is_empty());
         assert!(activity.new_prs.is_empty());
         assert!(activity.updated_prs.is_empty());
         assert!(activity.new_comments.is_empty());
     }
-    
+
     #[test]
     fn test_comment_serialization() {
         let comment = Comment {
@@ -272,23 +272,43 @@ mod tests {
             created_at: Timestamp::now(),
             updated_at: Timestamp::now(),
         };
-        
+
         let json = serde_json::to_string(&comment).unwrap();
         let comment2: Comment = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(comment.id, comment2.id);
         assert_eq!(comment.body, comment2.body);
         assert_eq!(comment.author.login, comment2.author.login);
     }
-    
+
     #[test]
     fn test_repo_status() {
         assert_eq!(RepoStatus::Active, RepoStatus::Active);
         assert_ne!(RepoStatus::Active, RepoStatus::Deleted);
-        
+
         // Test serialization
         let json = serde_json::to_string(&RepoStatus::Inaccessible).unwrap();
         let status: RepoStatus = serde_json::from_str(&json).unwrap();
         assert_eq!(status, RepoStatus::Inaccessible);
     }
+}
+
+/// PR file change information
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PrFileChange {
+    pub filename: String,
+    pub status: String,
+    pub additions: u32,
+    pub deletions: u32,
+    pub changes: u32,
+    pub patch: Option<String>,
+}
+
+/// PR diff information
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PrDiff {
+    pub files: Vec<PrFileChange>,
+    pub total_additions: u32,
+    pub total_deletions: u32,
+    pub total_files: u32,
 }
