@@ -100,14 +100,14 @@ pub fn user_friendly_error(error: &anyhow::Error) -> UserError {
     // Configuration errors
     if error_str.contains("Failed to read config") {
         return UserError::new("Configuration file not found")
-            .with_details("No .gh-report.toml file found")
+            .with_details("No config.toml file found")
             .with_suggestion("Run 'gh-report init' to create a configuration");
     }
 
     if error_str.contains("Failed to parse config") {
         return UserError::new("Invalid configuration file")
             .with_details("The configuration file contains syntax errors")
-            .with_suggestion("Check the TOML syntax in your .gh-report.toml file");
+            .with_suggestion("Check the TOML syntax in your config.toml file");
     }
 
     // Permission errors

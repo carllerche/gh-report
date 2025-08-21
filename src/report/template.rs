@@ -173,12 +173,16 @@ impl<'a> ReportTemplate<'a> {
         let mut total_updated_issues = 0;
         let mut total_new_prs = 0;
         let mut total_updated_prs = 0;
+        let mut total_merged_prs = 0;
+        let mut total_closed_issues = 0;
 
         for activity in activities.values() {
             total_new_issues += activity.new_issues.len();
             total_updated_issues += activity.updated_issues.len();
             total_new_prs += activity.new_prs.len();
             total_updated_prs += activity.updated_prs.len();
+            total_merged_prs += activity.merged_prs.len();
+            total_closed_issues += activity.closed_issues.len();
         }
 
         writeln!(output, "- **Repositories**: {}", activities.len())?;
@@ -186,6 +190,8 @@ impl<'a> ReportTemplate<'a> {
         writeln!(output, "- **Updated Issues**: {}", total_updated_issues)?;
         writeln!(output, "- **New Pull Requests**: {}", total_new_prs)?;
         writeln!(output, "- **Updated Pull Requests**: {}", total_updated_prs)?;
+        writeln!(output, "- **Merged Pull Requests**: {}", total_merged_prs)?;
+        writeln!(output, "- **Closed Issues**: {}", total_closed_issues)?;
 
         Ok(())
     }
@@ -201,7 +207,9 @@ impl<'a> ReportTemplate<'a> {
             let total = activity.new_issues.len()
                 + activity.updated_issues.len()
                 + activity.new_prs.len()
-                + activity.updated_prs.len();
+                + activity.updated_prs.len()
+                + activity.merged_prs.len()
+                + activity.closed_issues.len();
 
             if total == 0 {
                 continue;
@@ -209,8 +217,26 @@ impl<'a> ReportTemplate<'a> {
 
             writeln!(output, "### {}\n", repo_name)?;
 
+            // Show completed work first to celebrate accomplishments
+            if !activity.merged_prs.is_empty() {
+                writeln!(output, "#### 🎉 Merged Pull Requests\n")?;
+                for pr in &activity.merged_prs {
+                    self.write_issue_line(output, pr)?;
+                }
+                writeln!(output)?;
+            }
+
+            if !activity.closed_issues.is_empty() {
+                writeln!(output, "#### ✅ Closed Issues\n")?;
+                for issue in &activity.closed_issues {
+                    self.write_issue_line(output, issue)?;
+                }
+                writeln!(output)?;
+            }
+
+            // Then show work that needs attention
             if !activity.new_prs.is_empty() {
-                writeln!(output, "#### New Pull Requests\n")?;
+                writeln!(output, "#### 🔄 New Pull Requests\n")?;
                 for pr in &activity.new_prs {
                     self.write_issue_line(output, pr)?;
                 }
@@ -218,7 +244,7 @@ impl<'a> ReportTemplate<'a> {
             }
 
             if !activity.updated_prs.is_empty() {
-                writeln!(output, "#### Updated Pull Requests\n")?;
+                writeln!(output, "#### 📝 Updated Pull Requests\n")?;
                 for pr in &activity.updated_prs {
                     self.write_issue_line(output, pr)?;
                 }
@@ -226,7 +252,7 @@ impl<'a> ReportTemplate<'a> {
             }
 
             if !activity.new_issues.is_empty() {
-                writeln!(output, "#### New Issues\n")?;
+                writeln!(output, "#### 🆕 New Issues\n")?;
                 for issue in &activity.new_issues {
                     self.write_issue_line(output, issue)?;
                 }
@@ -234,7 +260,7 @@ impl<'a> ReportTemplate<'a> {
             }
 
             if !activity.updated_issues.is_empty() {
-                writeln!(output, "#### Updated Issues\n")?;
+                writeln!(output, "#### 🔄 Updated Issues\n")?;
                 for issue in &activity.updated_issues {
                     self.write_issue_line(output, issue)?;
                 }

@@ -110,7 +110,7 @@ This pattern avoids unnecessary trait indirection and makes the code more explic
 Main command to generate a report. Analyzes activity since the last report was generated.
 
 **Options:**
-- `--config <path>` - Path to configuration file (default: `~/.gh-report.toml`)
+- `--config <path>` - Path to configuration file (default: `~/.config/gh-report/config.toml`)
 - `--since <date>` - Override the automatic date detection
 - `--output <path>` - Override the output file location
 - `--dry-run` - Preview what would be fetched without generating report
@@ -192,7 +192,7 @@ Estimated:
 
 ### Configuration Structure
 
-**Location**: `~/.gh-report.toml`
+**Location**: `~/.config/gh-report/config.toml`
 
 ```toml
 # Core settings

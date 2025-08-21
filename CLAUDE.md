@@ -20,7 +20,7 @@ The tool addresses the challenge of managing high-volume GitHub activity across 
 
 ## Configuration
 
-- Configuration file: `~/.gh-report.toml`
+- Configuration file: `~/.config/gh-report/config.toml`
 - Default report location: `~/Github Reports`
 - Default file name format: `{yyyy-mm-dd} - Github - {short-title}`
   - `short-title` is an 8-word-or-fewer AI-generated title based on report content

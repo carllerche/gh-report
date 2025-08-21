@@ -120,7 +120,12 @@ pub fn group_activities_by_repo(issues: Vec<Issue>) -> BTreeMap<String, RepoActi
                         activity.updated_prs.push(issue);
                     }
                 }
-                _ => activity.updated_prs.push(issue),
+                crate::github::IssueState::Merged => {
+                    activity.merged_prs.push(issue);
+                }
+                crate::github::IssueState::Closed => {
+                    activity.updated_prs.push(issue); // Closed but not merged PRs
+                }
             }
         } else {
             match issue.state {
@@ -131,7 +136,13 @@ pub fn group_activities_by_repo(issues: Vec<Issue>) -> BTreeMap<String, RepoActi
                         activity.updated_issues.push(issue);
                     }
                 }
-                _ => activity.updated_issues.push(issue),
+                crate::github::IssueState::Closed => {
+                    activity.closed_issues.push(issue);
+                }
+                crate::github::IssueState::Merged => {
+                    // Issues can't be merged, treat as closed
+                    activity.closed_issues.push(issue);
+                }
             }
         }
     }

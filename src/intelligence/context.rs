@@ -85,6 +85,16 @@ fn determine_urgency(issue: &PrioritizedIssue) -> Urgency {
 
 /// Generate action description for an issue
 fn generate_action(issue: &crate::github::Issue) -> Option<String> {
+    // Skip generating actions for closed or merged items
+    match issue.state {
+        crate::github::IssueState::Closed | crate::github::IssueState::Merged => {
+            return None;
+        }
+        crate::github::IssueState::Open => {
+            // Continue to generate actions for open items
+        }
+    }
+
     // Security issues based on labels
     if issue.labels.iter().any(|l| {
         let name = l.name.to_lowercase();

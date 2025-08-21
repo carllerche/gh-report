@@ -162,6 +162,8 @@ pub struct RepoActivity {
     pub new_prs: Vec<Issue>,
     pub updated_issues: Vec<Issue>,
     pub updated_prs: Vec<Issue>,
+    pub merged_prs: Vec<Issue>,
+    pub closed_issues: Vec<Issue>,
     pub new_comments: Vec<(Issue, Vec<Comment>)>,
 }
 

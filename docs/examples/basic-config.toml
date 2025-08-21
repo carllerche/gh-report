@@ -1,5 +1,5 @@
 # Example configuration for gh-report
-# Copy to ~/.gh-report.toml and customize
+# Copy to ~/.config/gh-report/config.toml and customize
 
 [settings]
 # Where to save generated reports

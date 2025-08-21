@@ -697,6 +697,8 @@ impl<'a> ReportGenerator<'a> {
                         updated_issues: Vec::new(),
                         new_prs: Vec::new(),
                         updated_prs: Vec::new(),
+                        merged_prs: Vec::new(),
+                        closed_issues: Vec::new(),
                         new_comments: Vec::new(),
                     });
 

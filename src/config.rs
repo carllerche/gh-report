@@ -106,7 +106,7 @@ impl Config {
     /// Get the default configuration file path
     pub fn default_config_path() -> Result<PathBuf> {
         let home = dirs::home_dir().context("Could not determine home directory")?;
-        Ok(home.join(".gh-report.toml"))
+        Ok(home.join(".config").join("gh-report").join("config.toml"))
     }
 
     /// Create a default configuration
@@ -321,5 +321,15 @@ mod tests {
         let mut importances = vec![Critical, Low, High, Medium];
         importances.sort();
         assert_eq!(importances, vec![Low, Medium, High, Critical]);
+    }
+
+    #[test]
+    fn test_default_config_path() {
+        let path = Config::default_config_path().unwrap();
+        let path_str = path.to_string_lossy();
+        
+        // Should always use ~/.config/gh-report/config.toml on all platforms
+        assert!(path_str.ends_with(".config/gh-report/config.toml"));
+        assert!(path_str.contains(".config"));
     }
 }

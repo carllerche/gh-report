@@ -282,6 +282,12 @@ fn init_command(since: &str, output: Option<PathBuf>) -> Result<()> {
     // Write configuration
     let config_str = toml::to_string_pretty(&config).context("Failed to serialize config")?;
 
+    // Create config directory if it doesn't exist
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create config directory {:?}", parent))?;
+    }
+
     std::fs::write(&config_path, config_str)
         .with_context(|| format!("Failed to write config to {:?}", config_path))?;
 

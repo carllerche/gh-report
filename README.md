@@ -47,7 +47,7 @@ gh-report
 
 ## Configuration
 
-The tool uses a TOML configuration file at `~/.gh-report.toml`:
+The tool uses a TOML configuration file at `~/.config/gh-report/config.toml`:
 
 ```toml
 [settings]

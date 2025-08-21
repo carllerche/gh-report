@@ -41,9 +41,14 @@ pub fn summarize_activities_prompt(
                 activity.new_prs.len()
             ));
             for pr in &activity.new_prs {
+                let state_str = match pr.state {
+                    crate::github::IssueState::Open => "Open",
+                    crate::github::IssueState::Closed => "Closed",
+                    crate::github::IssueState::Merged => "Merged",
+                };
                 prompt.push_str(&format!(
-                    "- [PR #{}]({}): {} (by [@{}](https://github.com/{}))\n",
-                    pr.number, pr.url, pr.title, pr.author.login, pr.author.login
+                    "- [PR #{}]({}): {} (State: {}, by [@{}](https://github.com/{}))\n",
+                    pr.number, pr.url, pr.title, state_str, pr.author.login, pr.author.login
                 ));
                 if let Some(body) = &pr.body {
                     if !body.is_empty() && body.len() < 200 {
@@ -60,9 +65,14 @@ pub fn summarize_activities_prompt(
                 activity.updated_prs.len()
             ));
             for pr in &activity.updated_prs {
+                let state_str = match pr.state {
+                    crate::github::IssueState::Open => "Open",
+                    crate::github::IssueState::Closed => "Closed",
+                    crate::github::IssueState::Merged => "Merged",
+                };
                 prompt.push_str(&format!(
-                    "- [PR #{}]({}): {} (comments: {})\n",
-                    pr.number, pr.url, pr.title, pr.comments.total_count
+                    "- [PR #{}]({}): {} (State: {}, comments: {})\n",
+                    pr.number, pr.url, pr.title, state_str, pr.comments.total_count
                 ));
             }
             prompt.push('\n');
@@ -71,9 +81,14 @@ pub fn summarize_activities_prompt(
         if !activity.new_issues.is_empty() {
             prompt.push_str(&format!("### New Issues ({})\n", activity.new_issues.len()));
             for issue in &activity.new_issues {
+                let state_str = match issue.state {
+                    crate::github::IssueState::Open => "Open",
+                    crate::github::IssueState::Closed => "Closed",
+                    crate::github::IssueState::Merged => "Merged",
+                };
                 prompt.push_str(&format!(
-                    "- [Issue #{}]({}): {} (by [@{}](https://github.com/{}))\n",
-                    issue.number, issue.url, issue.title, issue.author.login, issue.author.login
+                    "- [Issue #{}]({}): {} (State: {}, by [@{}](https://github.com/{}))\n",
+                    issue.number, issue.url, issue.title, state_str, issue.author.login, issue.author.login
                 ));
                 // Add labels if present
                 if !issue.labels.is_empty() {
@@ -90,9 +105,14 @@ pub fn summarize_activities_prompt(
                 activity.updated_issues.len()
             ));
             for issue in &activity.updated_issues {
+                let state_str = match issue.state {
+                    crate::github::IssueState::Open => "Open",
+                    crate::github::IssueState::Closed => "Closed",
+                    crate::github::IssueState::Merged => "Merged",
+                };
                 prompt.push_str(&format!(
-                    "- [Issue #{}]({}): {} (comments: {})\n",
-                    issue.number, issue.url, issue.title, issue.comments.total_count
+                    "- [Issue #{}]({}): {} (State: {}, comments: {})\n",
+                    issue.number, issue.url, issue.title, state_str, issue.comments.total_count
                 ));
             }
             prompt.push('\n');
@@ -103,10 +123,15 @@ pub fn summarize_activities_prompt(
     prompt.push_str("1. Highlights the most important items that need attention\n");
     prompt.push_str("2. Groups related activities together\n");
     prompt.push_str("3. Identifies any blocking issues or urgent matters\n");
-    prompt.push_str("4. Suggests action items if applicable\n");
-    prompt.push_str("5. Keep it concise - focus on what matters most\n");
-    prompt.push_str("6. When mentioning specific issues or PRs, always include the URL in markdown link format: [#123](URL)\n");
-    prompt.push_str("7. When mentioning users, make them clickable using the format: [@username](https://github.com/username)\n");
+    prompt.push_str("4. Suggests action items ONLY for Open issues/PRs that need attention\n");
+    prompt.push_str("5. Celebrates completed work (Merged PRs, Closed issues) separately\n");
+    prompt.push_str("6. Keep it concise - focus on what matters most\n");
+    prompt.push_str("7. When mentioning specific issues or PRs, always include the URL in markdown link format: [#123](URL)\n");
+    prompt.push_str("8. When mentioning users, make them clickable using the format: [@username](https://github.com/username)\n");
+    prompt.push_str("\nIMPORTANT: Pay attention to the State field for each item:\n");
+    prompt.push_str("- Open: Needs attention, suggest actions if appropriate\n");
+    prompt.push_str("- Merged: Completed work, acknowledge the accomplishment\n");
+    prompt.push_str("- Closed: Resolved, mention briefly but don't suggest actions\n");
 
     prompt
 }
