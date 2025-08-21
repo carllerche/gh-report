@@ -1,6 +1,6 @@
 use anyhow::Result;
 use jiff::{Timestamp, ToSpan};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use tracing::info;
 
 use crate::config::Config;

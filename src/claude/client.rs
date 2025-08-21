@@ -3,7 +3,6 @@ use reqwest::blocking::{Client as HttpClient, Response};
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use serde_json;
 use std::time::Duration;
-use tracing::warn;
 
 use crate::claude::{
     get_api_key, resolve_model_alias, ErrorResponse, MessagesRequest, MessagesResponse,

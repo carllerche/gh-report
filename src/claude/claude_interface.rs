@@ -1,6 +1,6 @@
 use super::{ClaudeCLI, ClaudeClient, MessagesRequest, MessagesResponse};
 use crate::config::{ClaudeBackend, ClaudeConfig};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use tracing::{info, warn};
 
 /// Unified interface for Claude (API or CLI)

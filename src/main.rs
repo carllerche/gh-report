@@ -106,7 +106,7 @@ fn report_command(
     output: &Option<PathBuf>,
     dry_run: bool,
     estimate_cost: bool,
-    no_cache: bool,
+    _no_cache: bool,
     clear_cache: bool,
     cli: &Cli,
 ) -> Result<()> {
@@ -247,7 +247,7 @@ fn init_command(since: &str, output: Option<PathBuf>) -> Result<()> {
     let duration: TimeDuration = since
         .parse()
         .with_context(|| format!("Invalid time format: {}", since))?;
-    let lookback_days = duration.as_days();
+    let _lookback_days = duration.as_days();
 
     println!(
         "Analyzing GitHub activity for the past {} ({})...",
@@ -266,7 +266,7 @@ fn init_command(since: &str, output: Option<PathBuf>) -> Result<()> {
     }
 
     // Create GitHub client
-    let github_client = GitHubClient::new().context("Failed to create GitHub client")?;
+    let _github_client = GitHubClient::new().context("Failed to create GitHub client")?;
 
     println!("Creating configuration for activity-based GitHub reporting...");
 
@@ -388,10 +388,10 @@ fn summarize_command(
     }
 }
 
-fn estimate_costs(config: &Config, state: &State) -> Result<()> {
+fn estimate_costs(config: &Config, _state: &State) -> Result<()> {
     // TODO: Implement actual cost estimation based on data volume
     println!("Estimating costs based on current configuration...");
-    println!("\nRepositories to check: {}", state.tracked_repos.len());
+    println!("\nUsing activity-based repository discovery");
     println!(
         "Max issues per report: {}",
         config.settings.max_issues_per_report

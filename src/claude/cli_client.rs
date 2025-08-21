@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use std::io::Write;
 use std::process::Command;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Claude CLI client - uses the `claude` command-line tool
 pub struct ClaudeCLI {

@@ -8,12 +8,12 @@ use crate::github::{Issue, IssueState, RepoActivity};
 use crate::intelligence::AnalysisResult;
 
 pub struct ReportTemplate<'a> {
-    config: &'a Config,
+    _config: &'a Config,
 }
 
 impl<'a> ReportTemplate<'a> {
     pub fn new(config: &'a Config) -> Self {
-        ReportTemplate { config }
+        ReportTemplate { _config: config }
     }
 
     pub fn render(
