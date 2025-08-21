@@ -99,23 +99,6 @@ pub fn calculate_priority_score(
     score
 }
 
-/// Categorize score into priority level
-pub fn score_to_priority(score: u32) -> Priority {
-    match score {
-        0..=30 => Priority::Low,
-        31..=60 => Priority::Medium,
-        61..=90 => Priority::High,
-        _ => Priority::Critical,
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Priority {
-    Low,
-    Medium,
-    High,
-    Critical,
-}
 
 #[cfg(test)]
 mod tests {
@@ -161,8 +144,6 @@ mod tests {
         assert_eq!(score.rule_match_score, 30); // Security rule
         assert_eq!(score.label_score, 15); // Bug label
 
-        let priority = score_to_priority(score.total);
-        assert_eq!(priority, Priority::Critical);
     }
 
     #[test]

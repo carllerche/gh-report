@@ -176,7 +176,7 @@ fn test_report_structures() -> Result<()> {
 #[test]
 fn test_error_handling() -> Result<()> {
     use anyhow::anyhow;
-    use gh_report::error::{user_friendly_error, UserError};
+    use gh_report::error::user_friendly_error;
 
     // Test GitHub CLI error
     let error = anyhow!("gh: command not found");

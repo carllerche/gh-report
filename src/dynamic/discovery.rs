@@ -248,7 +248,6 @@ struct SearchRepo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::github::MockGitHub;
 
     #[test]
     fn test_repository_discovery() {

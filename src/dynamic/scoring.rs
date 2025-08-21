@@ -19,43 +19,6 @@ pub fn calculate_activity_score(metrics: &ActivityMetrics, weights: &ActivityWei
     commit_score + pr_score + issue_score + comment_score
 }
 
-/// Categorize activity level based on score
-pub fn categorize_activity_level(score: u32) -> ActivityLevel {
-    match score {
-        0..=10 => ActivityLevel::Low,
-        11..=30 => ActivityLevel::Medium,
-        31..=60 => ActivityLevel::High,
-        _ => ActivityLevel::VeryHigh,
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActivityLevel {
-    Low,
-    Medium,
-    High,
-    VeryHigh,
-}
-
-impl ActivityLevel {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ActivityLevel::Low => "Low",
-            ActivityLevel::Medium => "Medium",
-            ActivityLevel::High => "High",
-            ActivityLevel::VeryHigh => "Very High",
-        }
-    }
-
-    pub fn emoji(&self) -> &'static str {
-        match self {
-            ActivityLevel::Low => "🟢",
-            ActivityLevel::Medium => "🟡",
-            ActivityLevel::High => "🟠",
-            ActivityLevel::VeryHigh => "🔴",
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -81,21 +44,6 @@ mod tests {
         // 5*4 + 3*3 + 2*2 + 10*1 = 20 + 9 + 4 + 10 = 43
         assert_eq!(score, 43);
 
-        let level = categorize_activity_level(score);
-        assert_eq!(level, ActivityLevel::High);
     }
 
-    #[test]
-    fn test_activity_level_categorization() {
-        assert_eq!(categorize_activity_level(5), ActivityLevel::Low);
-        assert_eq!(categorize_activity_level(15), ActivityLevel::Medium);
-        assert_eq!(categorize_activity_level(45), ActivityLevel::High);
-        assert_eq!(categorize_activity_level(75), ActivityLevel::VeryHigh);
-    }
-
-    #[test]
-    fn test_activity_level_display() {
-        assert_eq!(ActivityLevel::Low.as_str(), "Low");
-        assert_eq!(ActivityLevel::High.emoji(), "🟠");
-    }
 }

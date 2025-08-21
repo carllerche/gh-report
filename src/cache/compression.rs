@@ -47,35 +47,6 @@ pub fn decompress_data(data: &[u8]) -> Result<Vec<u8>> {
     Ok(decompressed)
 }
 
-/// Check if compression is worthwhile for given data
-pub fn should_compress(data: &[u8]) -> bool {
-    // Don't compress if data is too small
-    if data.len() < 1024 {
-        return false;
-    }
-
-    // Simple heuristic: check if data looks like text (has many repeated patterns)
-    // by looking at byte distribution
-    let mut byte_counts = [0u32; 256];
-    for &byte in data.iter().take(1024) {
-        byte_counts[byte as usize] += 1;
-    }
-
-    // Count unique bytes
-    let unique_bytes = byte_counts.iter().filter(|&&count| count > 0).count();
-
-    // If less than 100 unique bytes in first 1KB, likely compressible
-    unique_bytes < 100
-}
-
-/// Calculate compression ratio
-pub fn compression_ratio(original_size: usize, compressed_size: usize) -> f64 {
-    if original_size == 0 {
-        return 0.0;
-    }
-
-    (1.0 - (compressed_size as f64 / original_size as f64)) * 100.0
-}
 
 #[cfg(test)]
 mod tests {
@@ -119,30 +90,4 @@ mod tests {
         assert_eq!(decompressed, original);
     }
 
-    #[test]
-    fn test_should_compress() {
-        // Small data should not be compressed
-        assert!(!should_compress(b"small"));
-
-        // Large repetitive data should be compressed
-        let mut repetitive = Vec::new();
-        for _ in 0..200 {
-            repetitive.extend_from_slice(b"repeat");
-        }
-        assert!(should_compress(&repetitive));
-
-        // Random-like data might not be worth compressing
-        let mut random_like = Vec::new();
-        for i in 0..1024 {
-            random_like.push((i % 256) as u8);
-        }
-        assert!(!should_compress(&random_like));
-    }
-
-    #[test]
-    fn test_compression_ratio() {
-        assert_eq!(compression_ratio(100, 25), 75.0);
-        assert_eq!(compression_ratio(1000, 100), 90.0);
-        assert_eq!(compression_ratio(0, 0), 0.0);
-    }
 }

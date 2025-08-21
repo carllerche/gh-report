@@ -427,7 +427,6 @@ impl Default for CacheConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     #[test]
     fn test_config_defaults() {

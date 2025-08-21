@@ -88,36 +88,6 @@ impl Default for CacheKeyBuilder {
     }
 }
 
-/// Generate cache key for GitHub API responses
-pub fn github_cache_key(endpoint: &str, params: &[(String, String)]) -> String {
-    let mut builder = CacheKeyBuilder::new()
-        .with_namespace("github")
-        .add(endpoint);
-
-    for (key, value) in params {
-        builder = builder.add(format!("{}={}", key, value));
-    }
-
-    builder.build()
-}
-
-/// Generate cache key for Claude API responses
-pub fn claude_cache_key(model: &str, prompt_hash: &str) -> String {
-    CacheKeyBuilder::new()
-        .with_namespace("claude")
-        .add(model)
-        .add(prompt_hash)
-        .build()
-}
-
-/// Generate cache key for issue context
-pub fn issue_context_key(repo: &str, issue_number: u32) -> String {
-    CacheKeyBuilder::new()
-        .with_namespace("context")
-        .add(repo.replace('/', "_"))
-        .add(issue_number.to_string())
-        .build()
-}
 
 #[cfg(test)]
 mod tests {
@@ -159,32 +129,6 @@ mod tests {
         assert_eq!(key, "base_present");
     }
 
-    #[test]
-    fn test_github_cache_key() {
-        let params = vec![
-            ("state".to_string(), "open".to_string()),
-            ("per_page".to_string(), "100".to_string()),
-        ];
-
-        let key = github_cache_key("issues", &params);
-        // The key will be a hash because params contain '=' characters
-        assert!(key.len() > 0);
-        // It should be a consistent hash
-        let key2 = github_cache_key("issues", &params);
-        assert_eq!(key, key2);
-    }
-
-    #[test]
-    fn test_claude_cache_key() {
-        let key = claude_cache_key("claude-3-sonnet", "prompt_hash_123");
-        assert_eq!(key, "claude_claude-3-sonnet_prompt_hash_123");
-    }
-
-    #[test]
-    fn test_issue_context_key() {
-        let key = issue_context_key("owner/repo", 42);
-        assert_eq!(key, "context_owner_repo_42");
-    }
 
     #[test]
     fn test_is_safe_key_component() {

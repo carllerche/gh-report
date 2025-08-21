@@ -167,7 +167,6 @@ pub struct InitResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::github::MockGitHub;
 
     #[test]
     fn test_dynamic_repo_manager_creation() {
