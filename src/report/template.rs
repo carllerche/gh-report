@@ -77,13 +77,11 @@ impl<'a> ReportTemplate<'a> {
                 };
                 writeln!(
                     &mut output,
-                    "{}. {} {} - {} ([#{}]({}))",
+                    "{}. {} {} - {}",
                     i + 1,
                     urgency_text,
                     action.description,
-                    action.reason,
-                    action.issue.number,
-                    action.issue.url
+                    action.reason
                 )?;
             }
             writeln!(&mut output)?;

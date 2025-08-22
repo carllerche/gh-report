@@ -24,8 +24,8 @@ pub fn extract_action_items(prioritized_issues: &[PrioritizedIssue]) -> Vec<Acti
         // Determine urgency based on score and labels
         let urgency = determine_urgency(issue);
 
-        // Generate action description
-        let action = generate_action(&issue.issue);
+        // Generate action description with full context
+        let action = generate_action_with_context(&issue.issue, &issue.repo);
 
         if let Some(description) = action {
             let reason = generate_reason(issue);
@@ -83,8 +83,8 @@ fn determine_urgency(issue: &PrioritizedIssue) -> Urgency {
     Urgency::Low
 }
 
-/// Generate action description for an issue
-fn generate_action(issue: &crate::github::Issue) -> Option<String> {
+/// Generate action description for an issue with full context
+fn generate_action_with_context(issue: &crate::github::Issue, repo: &str) -> Option<String> {
     // Skip generating actions for closed or merged items
     match issue.state {
         crate::github::IssueState::Closed | crate::github::IssueState::Merged => {
@@ -95,15 +95,21 @@ fn generate_action(issue: &crate::github::Issue) -> Option<String> {
         }
     }
 
+    let item_type = if issue.is_pull_request { "PR" } else { "issue" };
+    let title_truncated = if issue.title.len() > 60 {
+        format!("{}...", &issue.title[..57])
+    } else {
+        issue.title.clone()
+    };
+
     // Security issues based on labels
     if issue.labels.iter().any(|l| {
         let name = l.name.to_lowercase();
         name.contains("security") || name.contains("critical")
     }) {
         return Some(format!(
-            "Review and address security {} #{}",
-            if issue.is_pull_request { "PR" } else { "issue" },
-            issue.number
+            "🚨 Review security {} in {}: [{}]({})",
+            item_type, repo, title_truncated, issue.url
         ));
     }
 
@@ -113,30 +119,34 @@ fn generate_action(issue: &crate::github::Issue) -> Option<String> {
         name.contains("breaking")
     }) {
         return Some(format!(
-            "Review breaking change in {} #{}",
-            if issue.is_pull_request { "PR" } else { "issue" },
-            issue.number
+            "⚠️ Review breaking change in {}: [{}]({})",
+            repo, title_truncated, issue.url
         ));
     }
 
     // High comment activity
     if issue.comments.total_count > 10 {
         return Some(format!(
-            "Check active discussion on {} #{}",
-            if issue.is_pull_request { "PR" } else { "issue" },
-            issue.number
+            "💬 Check active discussion in {}: [{}]({}) ({} comments)",
+            repo, title_truncated, issue.url, issue.comments.total_count
         ));
     }
 
     // New critical/high importance items
     if issue.is_pull_request {
-        Some(format!("Review [PR #{}]({})", issue.number, issue.url))
+        Some(format!(
+            "📝 Review PR in {}: [{}]({})",
+            repo, title_truncated, issue.url
+        ))
     } else if issue
         .labels
         .iter()
         .any(|l| l.name.to_lowercase().contains("bug") || l.name.to_lowercase().contains("urgent"))
     {
-        Some(format!("Address [issue #{}]({})", issue.number, issue.url))
+        Some(format!(
+            "🐛 Address issue in {}: [{}]({})",
+            repo, title_truncated, issue.url
+        ))
     } else {
         None
     }
